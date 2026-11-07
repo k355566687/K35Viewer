@@ -25,6 +25,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- DBマイグレーション。リソース名は「Migrations.NNNN_名前.sql」に固定する -->
+    <EmbeddedResource Include="Migrations\*.sql" LogicalName="Migrations.%(Filename)%(Extension)" />
+  </ItemGroup>
+
+  <ItemGroup>
     <InternalsVisibleTo Include="K35Viewer.Tests" />
   </ItemGroup>
 

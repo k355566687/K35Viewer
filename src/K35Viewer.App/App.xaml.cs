@@ -1,4 +1,5 @@
 using System.Windows;
+using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Logging;
 using K35Viewer.ViewModels;
@@ -24,6 +25,9 @@ public partial class App : Application
         builder.Services.AddSingleton(paths);
         builder.Logging.AddK35ViewerLogging(
             LoggingConfiguration.CreateLogger(paths, LoggingConfiguration.DefaultMinimumLevel));
+        builder.Services.AddSingleton(new SqliteConnectionFactory(paths.DatabaseFile));
+        builder.Services.AddSingleton<MigrationRunner>();
+        builder.Services.AddSingleton<DatabaseInitializer>();
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();
 
@@ -33,11 +37,30 @@ public partial class App : Application
         var logger = _host.Services.GetRequiredService<ILogger<App>>();
         LogStarted(logger, paths.Root);
 
+        try
+        {
+            await _host.Services.GetRequiredService<DatabaseInitializer>().InitializeAsync();
+        }
+        catch (Exception ex)
+        {
+            LogDatabaseInitializationFailed(logger, ex);
+            MessageBox.Show(
+                $"データベースの初期化に失敗しました。\n{ex.Message}\n\nログ: {paths.LogsDirectory}",
+                "35Viewer",
+                MessageBoxButton.OK,
+                MessageBoxImage.Error);
+            Shutdown(1);
+            return;
+        }
+
         _host.Services.GetRequiredService<MainWindow>().Show();
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "35Viewer started. DataRoot={Root}")]
     private static partial void LogStarted(ILogger logger, string root);
+
+    [LoggerMessage(Level = LogLevel.Critical, Message = "DBの初期化に失敗しました。")]
+    private static partial void LogDatabaseInitializationFailed(ILogger logger, Exception exception);
 
     protected override async void OnExit(ExitEventArgs e)
     {
