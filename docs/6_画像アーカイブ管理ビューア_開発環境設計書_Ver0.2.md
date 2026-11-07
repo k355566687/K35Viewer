@@ -1,7 +1,8 @@
 # 画像アーカイブ管理ビューア 開発環境設計書
 
-**文書バージョン:** Ver.0.1  
+**文書バージョン:** Ver.0.2  
 **作成日:** 2026-11-06  
+**更新日:** 2026-11-07  
 **対象:** MVP
 
 ## 1. 目的
@@ -86,6 +87,32 @@ ZIP再構築テストでは、元ZIP、一時ZIP、更新前ZIPが一時的に�
 
 実際の完全なバージョン番号はプロジェクト作成時に `dotnet --list-sdks` で確認して記載する。
 
+Phase 0では `10.0.403` を固定した。
+
+### 3.5 テストランナー設定
+
+.NET 10 SDKでは、xUnit v3（Microsoft.Testing.Platform）のテストをVSTest経由で実行できない。`dotnet test` を使うため、`global.json` にテストランナーを明示する。
+
+```json
+{
+  "sdk": {
+    "version": "10.0.403",
+    "rollForward": "latestPatch"
+  },
+  "test": {
+    "runner": "Microsoft.Testing.Platform"
+  }
+}
+```
+
+この設定がない場合、`dotnet test` は「Testing with VSTest target is no longer supported」というエラーで失敗する。
+
+テスト実行コマンド（ソリューション指定には `--solution` が必要）:
+
+```bash
+dotnet test --solution K35Viewer.slnx -c Release
+```
+
 ## 4. ソリューション構成
 
 MVPでは2プロジェクト構成とする。
@@ -119,6 +146,7 @@ K35Viewer/
 │     ├─ Resources/
 │     └─ Migrations/
 └─ tests/
+   ├─ .editorconfig
    └─ K35Viewer.Tests/
       ├─ K35Viewer.Tests.csproj
       ├─ Services/
@@ -153,9 +181,16 @@ MVP段階ではApplication、Domain、Infrastructureをフォルダと名前空�
     <LangVersion>latest</LangVersion>
     <PlatformTarget>x64</PlatformTarget>
     <InvariantGlobalization>false</InvariantGlobalization>
+    <RootNamespace>K35Viewer</RootNamespace>
+    <AssemblyName>K35Viewer</AssemblyName>
   </PropertyGroup>
+  <ItemGroup>
+    <Using Include="System.IO" />
+  </ItemGroup>
 </Project>
 ```
+
+WPF SDKの暗黙usingには `System.IO` が含まれないため、`<Using Include="System.IO" />` を明示する。
 
 ### 5.1 x64固定
 
@@ -407,6 +442,8 @@ SQLiteの `operation_history` へ保存する。
 
 ### 10.2 アプリケーションログ
 
+ログ出力は `[LoggerMessage]` ソースジェネレーターで定義する。`TreatWarningsAsErrors` とCA1848 / CA1873により、`logger.LogInformation(...)` の直接呼び出しはビルドエラーになる。
+
 `ILogger<T>` を各サービスへ注入し、Serilog経由でファイルへ保存する。
 
 最低限の情報:
@@ -584,7 +621,14 @@ TestData/
 
 大容量・10,000件テストデータは、テスト実行時に生成するか、リポジトリ外のローカルデータを使用する。
 
-### 15.3 ファイル破壊防止
+### 15.3 テストコードの規約
+
+- テストメソッド名は `対象_期待動作` の形式とし、日本語を使用できる。
+- `Directory.Build.props` で警告をエラー扱いにしているため、アンダースコアを禁止するCA1707は `tests/.editorconfig` でテストコードに限り無効にする。
+- テストプロジェクトでは `Xunit` と `System.IO` を暗黙usingに追加する。
+- `InternalsVisibleTo` により、テストからAppプロジェクトのinternal型を参照できる。
+
+### 15.4 ファイル破壊防止
 
 自動テストは必ずテスト専用一時ディレクトリ内で行う。
 
