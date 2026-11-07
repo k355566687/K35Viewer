@@ -1,0 +1,34 @@
+<UserControl x:Class="K35Viewer.Views.ToastHost"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ItemsControl ItemsSource="{Binding Items}"
+                  Focusable="False"
+                  AutomationProperties.LiveSetting="Polite">
+        <ItemsControl.ItemTemplate>
+            <DataTemplate>
+                <Border CornerRadius="4" Padding="14,10" Margin="0,6,0,0" MaxWidth="480">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="#2F4F6F" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding Level}" Value="Success">
+                                    <Setter Property="Background" Value="#1E6B3A" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Level}" Value="Warning">
+                                    <Setter Property="Background" Value="#8A5A00" />
+                                </DataTrigger>
+                                <DataTrigger Binding="{Binding Level}" Value="Error">
+                                    <Setter Property="Background" Value="#9B1C1C" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="{Binding Symbol}" Foreground="White" FontWeight="Bold" Margin="0,0,8,0" />
+                        <TextBlock Text="{Binding Message}" Foreground="White" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </DataTemplate>
+        </ItemsControl.ItemTemplate>
+    </ItemsControl>
+</UserControl>
