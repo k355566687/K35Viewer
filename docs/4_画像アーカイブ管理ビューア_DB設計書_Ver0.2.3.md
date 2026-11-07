@@ -1,11 +1,21 @@
 # 画像アーカイブ管理ビューア DB設計書
 
-**文書バージョン:** Ver.0.2.2 修正版  
+**文書バージョン:** Ver.0.2.3  
 **作成日:** 2026-11-06  
+**更新日:** 2026-11-07  
 **対象:** MVP  
 **DBMS:** SQLite
 
 ## 1. 修正内容
+
+### Ver.0.2.3（Phase 2 実装に伴う確定事項）
+
+- `normalized_path` の正規化規則を確定した（フルパス化、末尾の区切り除去、大文字化）。6.1、6.2を更新
+- 不在アーカイブは物理削除せず `MISSING` として保持する方針を暫定確定した。12章のレビュー事項1を更新
+- スキャン結果をDBへ反映する際の規則（アクセスできなかった範囲を不在にしない、`scan_runs` の閉じ方等）を11.7として追加した
+- 初期DDLは変更していない（`schema_version` は1のまま）
+
+### Ver.0.2.2
 
 Ver.0.2の初期DDLにあったスキーマ漏れを修正した。
 
@@ -95,7 +105,7 @@ scan_runs
 |---|---|---:|---|
 | `id` | INTEGER | NO | 主キー、自動採番 |
 | `path` | TEXT | NO | 登録フォルダの絶対パス |
-| `normalized_path` | TEXT | NO | 比較用に正規化したパス |
+| `normalized_path` | TEXT | NO | 比較用に正規化したパス（正規化規則は6.2の注記を参照） |
 | `display_name` | TEXT | YES | 画面表示名 |
 | `is_network` | INTEGER | NO | ネットワークパスなら1 |
 | `is_enabled` | INTEGER | NO | スキャン対象なら1。既定値1 |
@@ -115,13 +125,23 @@ scan_runs
 | `parent_folder_id` | INTEGER | YES | 親フォルダID |
 | `name` | TEXT | NO | フォルダ名 |
 | `full_path` | TEXT | NO | 実フォルダの絶対パス |
-| `normalized_path` | TEXT | NO | 比較用に正規化した絶対パス |
+| `normalized_path` | TEXT | NO | 比較用に正規化した絶対パス（正規化規則は下記参照） |
 | `relative_path` | TEXT | NO | 登録フォルダからの相対パス |
 | `depth` | INTEGER | NO | 登録フォルダを0とする深度 |
 | `availability_status` | TEXT | NO | `AVAILABLE` / `UNAVAILABLE` / `UNKNOWN` |
 | `last_seen_scan_id` | INTEGER | YES | 最後に存在確認したScan ID |
 | `created_at` | INTEGER | NO | 登録日時 UTC |
 | `updated_at` | INTEGER | NO | 更新日時 UTC |
+
+`library_folders.normalized_path` と `folders.normalized_path` は同じ規則で正規化する。Windowsは大文字小文字を区別しないため、次の順で変換した値を保存する。
+
+1. フルパスへ変換する（`..` や相対指定を解決する）
+2. 末尾の区切り文字を除去する（`D:\` のようなドライブ直下・共有ルートは除く）
+3. 大文字へ変換する（`ToUpperInvariant`）
+
+例: `d:\archive\books\` → `D:\ARCHIVE\BOOKS`
+
+配下判定は文字列の前方一致ではなく、フォルダ境界で行う（`D:\Books2` は `D:\Books` の配下ではない）。
 
 制約:
 
@@ -522,9 +542,30 @@ DB書き込みは単一キューへ集約し、複数のバックグラウンド
 
 `archives.id`、サムネイル、最終閲覧位置は維持される。手順3の前に付け替えが完了していないと、CASCADEで配下が消えるため、順序を守ること。
 
+### 11.7 スキャン結果の反映
+
+スキャンは「ファイル列挙（DBへ書き込まない）」と「差分のDB反映（書き込みキュー経由の1トランザクション）」の2段階で行う。
+
+1. 開始時に `scan_runs` を `RUNNING` で作成する（独立したトランザクション）
+2. 登録フォルダ配下を列挙する。読み取れなかったフォルダは「確認不能」として記録し、スキップして続行する
+3. 差分を反映する。サイズまたは更新日時が異なれば変更、DBにないファイルは新規とする
+   - 変更: `analysis_status` を `PENDING` に戻し、`thumbnail_cache.status` を `STALE` にする。Archive IDは維持する
+   - 新規・変更のファイルは、書き込み直前にサイズと更新日時を再取得して照合する。一致しなければそのファイルの結果を破棄し、`failed_count` に計上して次回スキャンに委ねる
+   - 不在から戻ったファイルは、同じArchive IDで `AVAILABLE` に戻し、変更として計上する
+4. 確認できた範囲で見つからなかったアーカイブは `MISSING`、フォルダは `UNAVAILABLE` にする（物理削除しない）
+5. 反映と同じトランザクションで `scan_runs` を完了にし、`library_folders.last_scan_at` を更新する
+6. 最終結果を `operation_history` に記録する（開始は記録しない）
+
+**アクセスできなかった範囲を不在にしない。**
+
+- 読み取れなかったフォルダと、その配下のフォルダ・アーカイブは、不在判定の対象外とする（既存の登録を変更しない）。`scan_runs.status` は `PARTIAL` とする
+- 登録フォルダ自体にアクセスできない場合（ネットワークドライブの切断等）は、配下を一切変更せず、`library_folders.availability_status` を `UNAVAILABLE`、`scan_runs.status` を `FAILED` とする。接続が戻ったあとの次回スキャンで通常どおり復帰する
+
+キャンセルまたは予期しない例外でトランザクションがロールバックされた場合は、`RUNNING` のまま残らないよう、別トランザクションで `scan_runs` を `CANCELLED` または `FAILED` に更新する。
+
 ## 12. レビュー事項
 
-1. 不在ファイルを即時削除せず、`MISSING` として一定期間保持するか
+1. （暫定確定）不在ファイルは物理削除せず、`MISSING` として保持する。一覧・件数には含めない。保持期間の上限や、ユーザーによる削除操作は未定
 2. アーカイブ削除時にDB行を物理削除するか、論理削除にするか
 3. サムネイルをJPEG固定とするか、JPEG / PNGを使い分けるか
 4. `IMAGE_DELETE` の `details_json` へ削除対象画像のエントリ名一覧を保存するか
