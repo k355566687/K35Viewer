@@ -627,6 +627,7 @@ TestData/
 - `Directory.Build.props` で警告をエラー扱いにしているため、アンダースコアを禁止するCA1707は `tests/.editorconfig` でテストコードに限り無効にする。
 - テストプロジェクトでは `Xunit` と `System.IO` を暗黙usingに追加する。
 - `InternalsVisibleTo` により、テストからAppプロジェクトのinternal型を参照できる。
+- xUnit v3のアナライザー(xUnit1051)により、`CancellationToken` を受け取る非同期呼び出しには `TestContext.Current.CancellationToken` を渡す。警告はエラー扱いのため、渡さないとビルドが失敗する。
 
 ### 15.4 ファイル破壊防止
 
