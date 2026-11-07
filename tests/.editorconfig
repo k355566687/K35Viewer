@@ -1,0 +1,3 @@
+[*.cs]
+# テストメソッド名は「対象_期待動作」の形式で書くため、アンダースコアを許可する
+dotnet_diagnostic.CA1707.severity = none
