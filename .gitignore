@@ -1,0 +1,21 @@
+# Visual Studio
+.vs/
+*.user
+*.suo
+
+# ビルド成果物
+bin/
+obj/
+publish/
+
+# テスト結果・カバレッジ
+TestResults/
+coverage/
+
+# 実行時データ（誤ってリポジトリ内に作られた場合）
+*.db
+*.db-shm
+*.db-wal
+logs/
+thumbnails/
+temp/
