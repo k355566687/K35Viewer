@@ -20,6 +20,8 @@ public class LibraryViewVirtualizationTests
         public string? PickFolder() => null;
 
         public bool ConfirmMerge(string parentPath, IReadOnlyList<string> childPaths) => false;
+
+        public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, bool canUpdate) => LeaveChoice.Cancel;
     }
 
     private static void RunOnStaThread(Action action) => WpfTestHelper.RunOnStaThread(action);

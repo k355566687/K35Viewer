@@ -77,6 +77,20 @@ public partial class ViewerView : UserControl
         }
     }
 
+    // 一覧表示: 右クリックでメニューを開く前に、対象の画像を選択する（すでに選択中なら複数選択を保つ）。
+    // Handled にしない（右クリックメニューを開くため）
+    private void OnPageCellMouseRightButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: PageItem item })
+        {
+            ViewModel?.OnPageRightClicked(item.Index);
+        }
+    }
+
+    private void OnReserveDeleteClick(object sender, RoutedEventArgs e) => ViewModel?.ReserveDeleteCommand.Execute(null);
+
+    private void OnReleaseDeleteClick(object sender, RoutedEventArgs e) => ViewModel?.ReleaseDeleteCommand.Execute(null);
+
     // 別の頁に切り替わったら、左上から表示し直す。
     // 画面の終了処理中や別スレッドからの変更でも、終了済みのUIを操作しないようにする
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

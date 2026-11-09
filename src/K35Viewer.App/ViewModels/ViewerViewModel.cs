@@ -42,10 +42,10 @@ public sealed partial class ViewerViewModel(
     public const int PageStepRows = 3;
 
     private const string SingleViewHelp =
-        "←/→ 前後の頁　+/− 拡大・縮小　0 フィット　1 原寸　G 一覧表示　F11 全画面　Esc ライブラリへ戻る";
+        "←/→ 前後の頁　+/− 拡大・縮小　0 フィット　1 原寸　Delete 削除予約　G 一覧表示　F11 全画面　Esc ライブラリへ戻る";
 
     private const string ListViewHelp =
-        "矢印キー 移動　Shift/Ctrl+クリック 複数選択　Space 選択の切替　Ctrl+A 全選択　Enter 開く　G 1枚表示　Esc ライブラリへ戻る";
+        "矢印キー 移動　Shift/Ctrl+クリック 複数選択　Space 選択の切替　Ctrl+A 全選択　Delete 削除予約/解除　Enter 開く　G 1枚表示　Esc ライブラリへ戻る";
 
     /// <summary>拡大・縮小の段階。</summary>
     private static readonly double[] ZoomSteps =
@@ -143,6 +143,18 @@ public sealed partial class ViewerViewModel(
     [ObservableProperty]
     private string _selectionText = string.Empty;
 
+    /// <summary>削除予約されている画像の数。0 でなければ、アーカイブを離れるときに確認が必要。</summary>
+    [ObservableProperty]
+    private int _pendingDeleteCount;
+
+    /// <summary>「削除予定 3枚」の形式。削除予約がなければ空。</summary>
+    [ObservableProperty]
+    private string _pendingDeleteText = string.Empty;
+
+    /// <summary>現在の画像が削除予約されているか（一覧から、予約済みの画像を1枚表示した場合などに表示する）。</summary>
+    [ObservableProperty]
+    private bool _isCurrentPendingDelete;
+
     /// <summary>上部のツールバーを表示するか。全画面では画像を最大に使うため隠す。</summary>
     public bool ShowToolbar => !IsFullScreen;
 
@@ -230,6 +242,9 @@ public sealed partial class ViewerViewModel(
         _selected.Clear();
         SelectedCount = 0;
         SelectionText = string.Empty;
+        PendingDeleteCount = 0;
+        PendingDeleteText = string.Empty;
+        IsCurrentPendingDelete = false;
         CurrentImage = null;
         ErrorText = string.Empty;
         IsLoading = false;
@@ -304,6 +319,9 @@ public sealed partial class ViewerViewModel(
             case Key.Escape:
                 RequestClose();
                 return true;
+            case Key.Delete:
+                ToggleDelete();
+                return true;
             default:
                 return IsListView ? HandleListKey(key, modifiers) : HandleSingleKey(key, modifiers);
         }
@@ -338,6 +356,21 @@ public sealed partial class ViewerViewModel(
         {
             SelectOnly(index);
         }
+    }
+
+    /// <summary>
+    /// 一覧表示で画像が右クリックされたときにViewから呼ばれる（右クリックメニューを開く前）。
+    /// すでに選択されている画像なら選択を保ち（複数選択のままメニューを使える）、そうでなければその1枚だけを選択する。
+    /// </summary>
+    public void OnPageRightClicked(int index)
+    {
+        if (!IsOpen || !IsListView || !IsValid(index) || _selected.Contains(index))
+        {
+            return;
+        }
+
+        MoveCursor(index);
+        SelectOnly(index);
     }
 
     /// <summary>選択を、指定した1枚だけにする（範囲選択の起点もその1枚になる）。</summary>
@@ -431,6 +464,42 @@ public sealed partial class ViewerViewModel(
     {
         _zoomMode = ZoomMode.Actual;
         RecalculateDisplay();
+    }
+
+    /// <summary>
+    /// 削除予約の追加と解除を切り替える（Delete）。対象は、1枚表示では現在の画像、一覧表示では選択中の画像
+    /// （選択がなければ現在の画像）。対象がすべて予約済みなら解除し、そうでなければ予約する。ZIP本体は変更しない。
+    /// </summary>
+    [RelayCommand]
+    private void ToggleDelete()
+    {
+        if (_session is not { } session)
+        {
+            return;
+        }
+
+        var targets = DeleteTargets(session);
+        ApplyPendingDelete(session, targets, !targets.All(session.IsPendingDelete));
+    }
+
+    /// <summary>対象の画像を削除予約する（右クリックメニュー「削除予約」）。</summary>
+    [RelayCommand]
+    private void ReserveDelete()
+    {
+        if (_session is { } session)
+        {
+            ApplyPendingDelete(session, DeleteTargets(session), true);
+        }
+    }
+
+    /// <summary>対象の画像の削除予約を解除する（右クリックメニュー「削除予約を解除」）。</summary>
+    [RelayCommand]
+    private void ReleaseDelete()
+    {
+        if (_session is { } session)
+        {
+            ApplyPendingDelete(session, DeleteTargets(session), false);
+        }
     }
 
     [RelayCommand]
@@ -708,6 +777,40 @@ public sealed partial class ViewerViewModel(
         RequestScrollToCurrent();
     }
 
+    private IReadOnlyList<int> DeleteTargets(ViewerSession session) =>
+        IsListView && _selected.Count > 0 ? SelectedIndices : [session.CurrentIndex];
+
+    /// <summary>
+    /// 削除予約を追加・解除し、表示に反映する。1枚表示で現在の画像を予約した場合は、
+    /// 次の（なければ前の）予約されていない画像を表示する。移動先がなければ、予約した画像をそのまま
+    /// 「削除予定」の表示で残す。
+    /// </summary>
+    private void ApplyPendingDelete(ViewerSession session, IReadOnlyList<int> targets, bool pending)
+    {
+        session.SetPendingDelete(targets, pending);
+        foreach (var index in targets)
+        {
+            if (index >= 0 && index < Pages.Count)
+            {
+                Pages[index].IsPendingDelete = session.IsPendingDelete(index);
+            }
+        }
+
+        PendingDeleteCount = session.PendingDeleteCount;
+        PendingDeleteText = session.PendingDeleteCount > 0
+            ? string.Create(CultureInfo.CurrentCulture, $"削除予定 {session.PendingDeleteCount:N0}枚")
+            : string.Empty;
+
+        if (!IsListView && pending && session.IsPendingDelete(session.CurrentIndex)
+            && (session.MoveNext() || session.MovePrevious()))
+        {
+            _ = ShowCurrentAsync();
+            return;
+        }
+
+        UpdatePosition();
+    }
+
     private void MoveAndShow(Func<ViewerSession, bool> move)
     {
         if (_session is { } session && move(session))
@@ -732,6 +835,7 @@ public sealed partial class ViewerViewModel(
 
         PositionText = string.Create(CultureInfo.CurrentCulture, $"{session.CurrentIndex + 1:N0} / {session.Count:N0}");
         EntryName = session.CurrentEntry.FullName;
+        IsCurrentPendingDelete = session.IsPendingDelete(session.CurrentIndex);
 
         // 一覧表示で「現在位置」として強調する画像を切り替える
         if (_markedCurrentIndex != session.CurrentIndex)

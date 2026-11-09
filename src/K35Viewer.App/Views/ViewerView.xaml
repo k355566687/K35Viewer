@@ -18,7 +18,14 @@
                     ToolTip="{Binding EntryName}"
                     AutomationProperties.Name="{Binding DisplayName}"
                     AutomationProperties.ItemStatus="{Binding StatusText}"
-                    MouseLeftButtonDown="OnPageCellMouseLeftButtonDown">
+                    MouseLeftButtonDown="OnPageCellMouseLeftButtonDown"
+                    MouseRightButtonDown="OnPageCellMouseRightButtonDown">
+                <Border.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="削除予約" Click="OnReserveDeleteClick" />
+                        <MenuItem Header="削除予約を解除" Click="OnReleaseDeleteClick" />
+                    </ContextMenu>
+                </Border.ContextMenu>
                 <Border.Style>
                     <Style TargetType="Border">
                         <Setter Property="Background" Value="Transparent" />
@@ -42,7 +49,37 @@
                                    Foreground="#BBBBBB" />
                         <Image Source="{Binding Thumbnail}"
                                Stretch="Uniform"
-                               RenderOptions.BitmapScalingMode="HighQuality" />
+                               RenderOptions.BitmapScalingMode="HighQuality">
+                            <Image.Style>
+                                <Style TargetType="Image">
+                                    <Setter Property="Opacity" Value="1" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPendingDelete}" Value="True">
+                                            <Setter Property="Opacity" Value="0.3" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Image.Style>
+                        </Image>
+                        <!-- 削除予約された画像。薄く表示するだけでなく、文字でも示す（色だけに頼らない） -->
+                        <TextBlock Text="削除予定"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   Padding="8,3"
+                                   Foreground="White"
+                                   Background="#B3261E"
+                                   FontWeight="Bold">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsPendingDelete}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
                         <TextBlock Text="✓"
                                    HorizontalAlignment="Right"
                                    VerticalAlignment="Top"
@@ -178,9 +215,43 @@
                                HorizontalAlignment="Center"
                                VerticalAlignment="Center"
                                RenderOptions.BitmapScalingMode="HighQuality"
-                               AutomationProperties.Name="{Binding EntryName}" />
+                               AutomationProperties.Name="{Binding EntryName}">
+                            <Image.Style>
+                                <Style TargetType="Image">
+                                    <Setter Property="Opacity" Value="1" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsCurrentPendingDelete}" Value="True">
+                                            <Setter Property="Opacity" Value="0.35" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Image.Style>
+                        </Image>
                     </Grid>
                 </ScrollViewer>
+
+                <!-- 一覧から、削除予約済みの画像を1枚表示した場合（Deleteで解除できる） -->
+                <TextBlock Text="削除予定（Deleteで解除）"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Top"
+                           Margin="0,16,0,0"
+                           Padding="12,4"
+                           Foreground="White"
+                           Background="#B3261E"
+                           FontWeight="Bold"
+                           IsHitTestVisible="False"
+                           AutomationProperties.LiveSetting="Polite">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Collapsed" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsCurrentPendingDelete}" Value="True">
+                                    <Setter Property="Visibility" Value="Visible" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
 
                 <TextBlock Text="読み込み中…"
                            HorizontalAlignment="Center"
@@ -256,6 +327,12 @@
                                Foreground="#CCCCCC"
                                Margin="14,0,0,0"
                                Visibility="{Binding IsSingleView, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock Text="{Binding PendingDeleteText}"
+                               Foreground="#FFB4AB"
+                               FontWeight="SemiBold"
+                               Margin="14,0,0,0"
+                               AutomationProperties.Name="削除予定件数"
+                               AutomationProperties.LiveSetting="Polite" />
                     <TextBlock Text="{Binding SelectionText}"
                                Foreground="#9CC2FF"
                                FontWeight="SemiBold"

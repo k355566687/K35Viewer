@@ -35,8 +35,19 @@ public sealed partial class PageItem(int index, string entryName, PageThumbnailS
     [ObservableProperty]
     private bool _isCurrent;
 
+    /// <summary>削除予約されているか（ZIP本体はまだ変更されていない）。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(StatusText))]
+    private bool _isPendingDelete;
+
     /// <summary>スクリーンリーダー等に伝える状態。色だけに頼らない。</summary>
-    public string StatusText => IsSelected ? "選択中" : string.Empty;
+    public string StatusText => (IsSelected, IsPendingDelete) switch
+    {
+        (true, true) => "選択中、削除予定",
+        (true, false) => "選択中",
+        (false, true) => "削除予定",
+        _ => string.Empty,
+    };
 
     /// <summary>サムネイルがない間に、枠の中へ表示する説明。</summary>
     public string PlaceholderText => _failed ? "読み込めません" : "読み込み中…";

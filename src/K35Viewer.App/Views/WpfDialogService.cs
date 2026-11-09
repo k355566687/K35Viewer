@@ -32,4 +32,17 @@ public sealed class WpfDialogService : IDialogService
             MessageBoxImage.Question,
             MessageBoxResult.No) == MessageBoxResult.Yes;
     }
+
+    public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, bool canUpdate)
+    {
+        var dialog = new ArchiveChangeDialog(archiveName, pendingDeleteCount, canUpdate);
+        var owner = Application.Current?.MainWindow;
+        if (owner is { IsVisible: true } && !ReferenceEquals(owner, dialog))
+        {
+            dialog.Owner = owner;
+        }
+
+        _ = dialog.ShowDialog();
+        return dialog.Choice;
+    }
 }

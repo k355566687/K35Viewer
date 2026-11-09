@@ -38,8 +38,18 @@ public partial class MainWindow : Window
         }
     }
 
+    // 削除予約が残っていれば終了前に確認する（キャンセルなら終了しない）。
     // ビューアを開いたまま終了する場合も、最後に閲覧した位置を保存する
-    private void OnClosing(object? sender, CancelEventArgs e) => _viewModel.Viewer.FlushForExit();
+    private void OnClosing(object? sender, CancelEventArgs e)
+    {
+        if (!_viewModel.ConfirmLeaveViewer())
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        _viewModel.Viewer.FlushForExit();
+    }
 
     private void OnViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {

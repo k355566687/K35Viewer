@@ -13,6 +13,7 @@ public sealed class ViewerSession : IDisposable
     public const long MaxImageBytes = 128L * 1024 * 1024;
 
     private readonly IOpenedArchive _archive;
+    private readonly HashSet<int> _pendingDelete = [];
     private bool _disposed;
 
     internal ViewerSession(long archiveId, string archiveName, string archivePath, IOpenedArchive archive, int initialIndex)
@@ -41,9 +42,51 @@ public sealed class ViewerSession : IDisposable
 
     public ArchiveImageEntry CurrentEntry => Entries[CurrentIndex];
 
-    public bool CanMoveNext => CurrentIndex < Count - 1;
+    /// <summary>削除予約されている画像の数。</summary>
+    public int PendingDeleteCount => _pendingDelete.Count;
 
-    public bool CanMovePrevious => CurrentIndex > 0;
+    /// <summary>
+    /// 削除予約されている画像のエントリ名（自然順）。ZIPの再構築（Phase 8）で除外する対象。
+    /// DBへは保存せず、アーカイブを離れるときに確定または破棄する（内部アーキテクチャ設計書 5.5）。
+    /// </summary>
+    public IReadOnlyList<string> PendingDeleteEntries => [.. _pendingDelete.Order().Select(index => Entries[index].FullName)];
+
+    /// <summary>削除予約されている画像の位置（昇順）。</summary>
+    public IReadOnlyList<int> PendingDeleteIndices => [.. _pendingDelete.Order()];
+
+    /// <summary>次に移動できる（削除予約されていない）画像が、現在位置より後ろにあるか。</summary>
+    public bool CanMoveNext => FindNext(CurrentIndex) >= 0;
+
+    /// <summary>次に移動できる（削除予約されていない）画像が、現在位置より前にあるか。</summary>
+    public bool CanMovePrevious => FindPrevious(CurrentIndex) >= 0;
+
+    public bool IsPendingDelete(int index) => _pendingDelete.Contains(index);
+
+    /// <summary>
+    /// 指定した画像の削除予約を、追加（<paramref name="pending"/> が true）または解除する。範囲外の位置は無視する。
+    /// ZIP本体は変更しない。実際に状態が変わった画像の数を返す。
+    /// </summary>
+    public int SetPendingDelete(IEnumerable<int> indices, bool pending)
+    {
+        var changed = 0;
+        foreach (var index in indices)
+        {
+            if (index < 0 || index >= Count)
+            {
+                continue;
+            }
+
+            if (pending ? _pendingDelete.Add(index) : _pendingDelete.Remove(index))
+            {
+                changed++;
+            }
+        }
+
+        return changed;
+    }
+
+    /// <summary>すべての削除予約を破棄する。</summary>
+    public void ClearPendingDelete() => _pendingDelete.Clear();
 
     /// <summary>指定した位置へ移動する。範囲外、または現在位置と同じなら移動せず false。</summary>
     public bool MoveTo(int index)
@@ -57,14 +100,63 @@ public sealed class ViewerSession : IDisposable
         return true;
     }
 
-    /// <summary>次の画像へ。最後の画像なら移動せず false（先頭へは戻らない）。</summary>
-    public bool MoveNext() => CanMoveNext && MoveTo(CurrentIndex + 1);
+    /// <summary>
+    /// 次の画像へ。削除予約された画像は飛ばす。後ろに移動先がなければ移動せず false（先頭へは戻らない）。
+    /// </summary>
+    public bool MoveNext()
+    {
+        var index = FindNext(CurrentIndex);
+        return index >= 0 && MoveTo(index);
+    }
 
-    public bool MovePrevious() => CanMovePrevious && MoveTo(CurrentIndex - 1);
+    /// <summary>前の画像へ。削除予約された画像は飛ばす。</summary>
+    public bool MovePrevious()
+    {
+        var index = FindPrevious(CurrentIndex);
+        return index >= 0 && MoveTo(index);
+    }
 
-    public bool MoveFirst() => MoveTo(0);
+    /// <summary>削除予約されていない最初の画像へ。</summary>
+    public bool MoveFirst()
+    {
+        var index = FindNext(-1);
+        return index >= 0 && MoveTo(index);
+    }
 
-    public bool MoveLast() => MoveTo(Count - 1);
+    /// <summary>削除予約されていない最後の画像へ。</summary>
+    public bool MoveLast()
+    {
+        var index = FindPrevious(Count);
+        return index >= 0 && MoveTo(index);
+    }
+
+    // 指定位置より後ろで、削除予約されていない最初の位置。なければ -1
+    private int FindNext(int from)
+    {
+        for (var index = from + 1; index < Count; index++)
+        {
+            if (!_pendingDelete.Contains(index))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
+
+    // 指定位置より前で、削除予約されていない最後の位置。なければ -1
+    private int FindPrevious(int from)
+    {
+        for (var index = from - 1; index >= 0; index--)
+        {
+            if (!_pendingDelete.Contains(index))
+            {
+                return index;
+            }
+        }
+
+        return -1;
+    }
 
     /// <summary>
     /// 指定した位置の画像のデータを読み出す（呼び出したスレッドで同期的に行う）。

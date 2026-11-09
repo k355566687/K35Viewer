@@ -16,14 +16,18 @@ internal sealed class MainTestHarness : IDisposable
     {
         _ctx = ctx;
         Notifications = new NotificationService();
+        Dialogs = new ScriptedDialogService();
         Library = new LibraryViewModel(
-            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, new NoDialogService(), NullLogger<LibraryViewModel>.Instance);
+            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, Dialogs, NullLogger<LibraryViewModel>.Instance);
         Viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
         Toasts = new ToastHostViewModel(Notifications);
-        Main = new MainViewModel(Library, Viewer, Toasts, Notifications, NullLogger<MainViewModel>.Instance);
+        Main = new MainViewModel(Library, Viewer, Toasts, Notifications, Dialogs, NullLogger<MainViewModel>.Instance);
     }
 
     public NotificationService Notifications { get; }
+
+    /// <summary>確認ダイアログの代わり。呼ばれた内容を記録し、あらかじめ決めた選択を返す。</summary>
+    public ScriptedDialogService Dialogs { get; }
 
     public LibraryViewModel Library { get; }
 
@@ -66,11 +70,22 @@ internal sealed class MainTestHarness : IDisposable
         _ = _ctx;
     }
 
-    private sealed class NoDialogService : IDialogService
+    internal sealed class ScriptedDialogService : IDialogService
     {
+        /// <summary>変更確認ダイアログで返す選択。</summary>
+        public LeaveChoice Choice { get; set; } = LeaveChoice.Cancel;
+
+        public List<(string ArchiveName, int Count, bool CanUpdate)> LeaveConfirmations { get; } = [];
+
         public string? PickFolder() => null;
 
         public bool ConfirmMerge(string parentPath, IReadOnlyList<string> childPaths) => false;
+
+        public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, bool canUpdate)
+        {
+            LeaveConfirmations.Add((archiveName, pendingDeleteCount, canUpdate));
+            return Choice;
+        }
     }
 }
 

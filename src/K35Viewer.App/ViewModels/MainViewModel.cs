@@ -15,6 +15,7 @@ public sealed partial class MainViewModel : ObservableObject
     private const string ProductName = "35Viewer";
 
     private readonly NotificationService _notifications;
+    private readonly IDialogService _dialogs;
     private readonly ILogger<MainViewModel> _logger;
     private bool _isTransitioning;
 
@@ -23,12 +24,14 @@ public sealed partial class MainViewModel : ObservableObject
         ViewerViewModel viewer,
         ToastHostViewModel toasts,
         NotificationService notifications,
+        IDialogService dialogs,
         ILogger<MainViewModel> logger)
     {
         Library = library;
         Viewer = viewer;
         Toasts = toasts;
         _notifications = notifications;
+        _dialogs = dialogs;
         _logger = logger;
 
         Library.OpenRequested += OnOpenRequested;
@@ -89,6 +92,12 @@ public sealed partial class MainViewModel : ObservableObject
             return;
         }
 
+        // 削除予約が残っていれば、離れてよいか確認する（キャンセルならビューアに留まる）
+        if (!ConfirmLeaveViewer())
+        {
+            return;
+        }
+
         _isTransitioning = true;
         try
         {
@@ -104,6 +113,23 @@ public sealed partial class MainViewModel : ObservableObject
         {
             _isTransitioning = false;
         }
+    }
+
+    /// <summary>
+    /// ビューアのアーカイブを離れてよいか確認する（ライブラリへ戻る場合、アプリを終了する場合）。
+    /// 削除予約がなければ確認せずに true。削除予約があれば、変更確認ダイアログ（DLG-01）を表示する。
+    /// 「変更を破棄」なら true（離れると削除予約は破棄され、ZIP本体は変更されない）、キャンセルなら false。
+    /// ZIPの再構築（「更新する」）はPhase 8で実装するまで選べない。
+    /// </summary>
+    public bool ConfirmLeaveViewer()
+    {
+        if (!IsViewerVisible || Viewer.PendingDeleteCount == 0)
+        {
+            return true;
+        }
+
+        var choice = _dialogs.ConfirmLeaveArchive(Viewer.ArchiveName, Viewer.PendingDeleteCount, canUpdate: false);
+        return choice == LeaveChoice.Discard;
     }
 
     private void OnViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)

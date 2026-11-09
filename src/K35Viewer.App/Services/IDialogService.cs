@@ -1,5 +1,18 @@
 namespace K35Viewer.Services;
 
+/// <summary>未確定の変更があるアーカイブを離れるときの、ユーザーの選択（DLG-01）。</summary>
+public enum LeaveChoice
+{
+    /// <summary>変更を反映してアーカイブを更新してから離れる。</summary>
+    Update,
+
+    /// <summary>変更を破棄して離れる。ZIP本体は変更しない。</summary>
+    Discard,
+
+    /// <summary>離れるのをやめて、ビューアに留まる。</summary>
+    Cancel,
+}
+
 /// <summary>ユーザーに選択・確認を求めるダイアログ。ViewModelからWPFのダイアログを直接呼ばないための境界。</summary>
 public interface IDialogService
 {
@@ -8,4 +21,11 @@ public interface IDialogService
 
     /// <summary>既存の登録フォルダを、追加する親フォルダの配下へ統合してよいか確認する(UC-01)。</summary>
     bool ConfirmMerge(string parentPath, IReadOnlyList<string> childPaths);
+
+    /// <summary>
+    /// 削除予約が残っているアーカイブを離れてよいか確認する(DLG-01、UC-11)。
+    /// <paramref name="canUpdate"/> が false の間は「更新する」を選べない（ZIPの再構築はPhase 8で実装する）。
+    /// ダイアログを閉じた場合は <see cref="LeaveChoice.Cancel"/>。
+    /// </summary>
+    LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, bool canUpdate);
 }
