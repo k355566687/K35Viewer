@@ -7,6 +7,7 @@ public sealed record LibraryFolder(
     string NormalizedPath,
     string? DisplayName,
     bool IsNetwork,
+    bool IsEnabled,
     string AvailabilityStatus,
     long? LastScanAt);
 

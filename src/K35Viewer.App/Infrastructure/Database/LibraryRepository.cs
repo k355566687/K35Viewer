@@ -7,7 +7,7 @@ namespace K35Viewer.Infrastructure.Database;
 public sealed class LibraryRepository(SqliteConnectionFactory connectionFactory)
 {
     private const string LibraryFolderColumns =
-        "id, path, normalized_path, display_name, is_network, availability_status, last_scan_at";
+        "id, path, normalized_path, display_name, is_network, is_enabled, availability_status, last_scan_at";
 
     // ---- 読み取り(自前の接続) ----
 
@@ -51,6 +51,35 @@ public sealed class LibraryRepository(SqliteConnectionFactory connectionFactory)
                 reader.GetString(3),
                 reader.GetNullableInt64(4),
                 (int)reader.GetInt64(5)));
+        }
+
+        return result;
+    }
+
+    /// <summary>フォルダツリー用に、全フォルダを登録フォルダの状態つきで取得する。</summary>
+    public async Task<IReadOnlyList<FolderTreeRow>> GetFolderTreeRowsAsync(CancellationToken ct)
+    {
+        await using var connection = await connectionFactory.OpenAsync(ct);
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            null,
+            """
+            SELECT f.id, f.parent_folder_id, f.name, f.full_path, f.availability_status, lf.availability_status
+              FROM folders f
+              JOIN library_folders lf ON f.library_folder_id = lf.id
+            """);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+
+        var result = new List<FolderTreeRow>();
+        while (await reader.ReadAsync(ct))
+        {
+            result.Add(new FolderTreeRow(
+                reader.GetInt64(0),
+                reader.GetNullableInt64(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetString(4),
+                reader.GetString(5)));
         }
 
         return result;
@@ -314,6 +343,16 @@ public sealed class LibraryRepository(SqliteConnectionFactory connectionFactory)
             reader.GetString(2),
             reader.GetNullableString(3),
             reader.GetInt64(4) == 1,
-            reader.GetString(5),
-            reader.GetNullableInt64(6));
+            reader.GetInt64(5) == 1,
+            reader.GetString(6),
+            reader.GetNullableInt64(7));
 }
+
+/// <summary>フォルダツリーの組み立てに使う、folders と登録フォルダの結合結果。</summary>
+public sealed record FolderTreeRow(
+    long Id,
+    long? ParentFolderId,
+    string Name,
+    string FullPath,
+    string FolderAvailability,
+    string LibraryAvailability);

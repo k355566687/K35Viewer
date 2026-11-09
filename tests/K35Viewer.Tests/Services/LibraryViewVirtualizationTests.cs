@@ -1,0 +1,121 @@
+using System.Diagnostics;
+using System.Runtime.ExceptionServices;
+using System.Windows;
+using System.Windows.Automation;
+using System.Windows.Controls;
+using System.Windows.Media;
+using System.Windows.Threading;
+using K35Viewer.Domain;
+using K35Viewer.Services;
+using K35Viewer.ViewModels;
+using K35Viewer.Views;
+using Microsoft.Extensions.Logging.Abstractions;
+
+namespace K35Viewer.Tests.Services;
+
+/// <summary>
+/// 実際のWPFウィンドウに1万件を表示し、一覧の仮想化が効いて「画面に見える行だけ」が生成されることを確認する。
+/// </summary>
+public class LibraryViewVirtualizationTests
+{
+    private sealed class NoDialogs : IDialogService
+    {
+        public string? PickFolder() => null;
+
+        public bool ConfirmMerge(string parentPath, IReadOnlyList<string> childPaths) => false;
+    }
+
+    private static void RunOnStaThread(Action action)
+    {
+        Exception? error = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                action();
+            }
+            catch (Exception ex)
+            {
+                error = ex;
+            }
+            finally
+            {
+                Dispatcher.CurrentDispatcher.InvokeShutdown();
+            }
+        });
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        thread.Join();
+        if (error is not null)
+        {
+            ExceptionDispatchInfo.Capture(error).Throw();
+        }
+    }
+
+    private static IEnumerable<T> Descendants<T>(DependencyObject root)
+        where T : DependencyObject
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            if (child is T match)
+            {
+                yield return match;
+            }
+
+            foreach (var nested in Descendants<T>(child))
+            {
+                yield return nested;
+            }
+        }
+    }
+
+    [Fact]
+    public async Task 一覧は1万件を渡しても_画面に見える行だけを生成する()
+    {
+        using var ctx = new LibraryTestContext();
+        await ctx.InitializeAsync();
+        using var viewModel = new LibraryViewModel(
+            ctx.Library, ctx.Scan, new NoDialogs(), NullLogger<LibraryViewModel>.Instance);
+        await viewModel.InitializeAsync(); // 画面表示時の初期化を済ませ、後から一覧が上書きされないようにする
+
+        var items = Enumerable.Range(0, 10_000)
+            .Select(i => new ArchiveListItem(new ArchiveSummary(
+                i + 1, $"書籍_{i:D5}.zip", @"D:\Archive\Books", 1_000_000 + i, 1_700_000_000 + (i * 60), null, "PENDING")))
+            .ToList();
+        viewModel.Archives = items;
+        viewModel.TotalCount = items.Count;
+        viewModel.EmptyMessage = string.Empty;
+
+        var realizedRows = 0;
+        var firstShowMs = 0L;
+        var listViewFound = false;
+
+        RunOnStaThread(() =>
+        {
+            var view = new LibraryView { DataContext = viewModel };
+            var window = new Window { Width = 1280, Height = 800, Content = view };
+
+            var stopwatch = Stopwatch.StartNew();
+            window.Show();
+            window.UpdateLayout();
+            firstShowMs = stopwatch.ElapsedMilliseconds;
+
+            var listView = Descendants<ListView>(view)
+                .FirstOrDefault(l => AutomationProperties.GetName(l) == "アーカイブ一覧");
+            listViewFound = listView is not null;
+            if (listView is not null)
+            {
+                realizedRows = Descendants<ListViewItem>(listView).Count();
+            }
+
+            window.Close();
+        });
+
+        TestContext.Current.SendDiagnosticMessage(
+            $"WPF一覧: 1万件を表示してレイアウト完了まで {firstShowMs}ms / 生成された行 {realizedRows}件");
+        Assert.True(listViewFound, "アーカイブ一覧が見つかりません。");
+        Assert.InRange(realizedRows, 1, 200); // 1万件ではなく、画面に見える数十行だけ
+        Assert.True(firstShowMs < 5_000, $"表示が遅すぎます: {firstShowMs}ms");
+    }
+}

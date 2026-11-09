@@ -11,6 +11,7 @@ namespace K35Viewer.Services;
 /// フォルダスキャンと差分更新(UC-02 / UC-16 / UC-17)。
 /// ファイル列挙は書き込みなしで行い、結果のDB反映だけを書き込みキュー経由の1トランザクションで行う。
 /// 画像枚数・表紙・サムネイルの取得は含まない(解析状態 PENDING のまま登録し、後続Phaseで処理する)。
+/// スキャンは同時に1つだけ実行する(後から呼ばれたものは先のスキャンの完了を待つ)。
 /// </summary>
 public sealed partial class ScanService(
     FileSystemService fileSystem,
@@ -20,61 +21,116 @@ public sealed partial class ScanService(
     HistoryRepository history,
     DatabaseWriter writer,
     INotificationService notifications,
-    ILogger<ScanService> logger)
+    ILogger<ScanService> logger) : IDisposable
 {
     private const string Available = "AVAILABLE";
 
+    private readonly SemaphoreSlim _gate = new(1, 1);
+
+    /// <summary>指定した管理フォルダ1件をスキャンする(フォルダ追加直後の初回スキャン等)。</summary>
     public async Task<ScanSummary> ScanAsync(long libraryFolderId, ScanType scanType, CancellationToken ct = default)
     {
         var library = await libraries.GetLibraryFolderAsync(libraryFolderId, ct)
             ?? throw new ArgumentException($"管理フォルダが見つかりません: {libraryFolderId}", nameof(libraryFolderId));
-        var displayName = library.DisplayName ?? library.Path;
-
-        notifications.ShowInfo(StartMessage(scanType, displayName));
-        LogStarted(logger, library.Path, scanType);
-
-        var scanId = await writer.ExecuteAsync(
-            (connection, transaction, token) =>
-                scans.StartAsync(connection, transaction, scanType, library.Id, UnixTime.Now(), token),
-            ct);
-
-        ScanSummary summary;
-        try
-        {
-            var tree = await Task.Run(() => fileSystem.ScanDirectoryTree(library.Path, ct), ct);
-            summary = await writer.ExecuteAsync(
-                (connection, transaction, token) =>
-                    ApplyAsync(connection, transaction, library, scanId, tree, token),
-                ct);
-        }
-        catch (OperationCanceledException)
-        {
-            summary = new ScanSummary(scanId, OperationStatus.Cancelled, 0, 0, 0, 0, 0, "スキャンをキャンセルしました");
-            await FinishAsync(library, scanType, summary, "CANCELLED", closeScanRun: true);
-            notifications.ShowInfo(summary.Message);
-            throw;
-        }
-        catch (Exception ex)
-        {
-            LogFailed(logger, ex, library.Path);
-            summary = new ScanSummary(
-                scanId, OperationStatus.Failed, 0, 0, 0, 0, 0,
-                string.Create(CultureInfo.CurrentCulture, $"「{displayName}」のスキャンに失敗しました"));
-            await FinishAsync(library, scanType, summary, "UNEXPECTED_ERROR", closeScanRun: true);
-            notifications.ShowError(summary.Message);
-            return summary;
-        }
-
-        await FinishAsync(library, scanType, summary, ErrorCodeOf(summary), closeScanRun: false);
-        Notify(scanType, summary);
-        LogCompleted(logger, library.Path, summary.Status, summary.Added, summary.Changed, summary.Missing, summary.Failed);
-        return summary;
+        return await RunAsync([library], library.Id, scanType, ct);
     }
 
     /// <summary>
-    /// 列挙結果をDBへ反映する。アクセスできなかった範囲の既存登録は「不在」にしない。
+    /// 有効なすべての管理フォルダをまとめて1回のスキャンとして実行する(再スキャン・起動時チェック)。
+    /// 開始・完了の通知と操作履歴は全体で1回にまとめる。対象がなければ何もせず null を返す。
     /// </summary>
-    private async Task<ScanSummary> ApplyAsync(
+    public async Task<ScanSummary?> ScanAllAsync(ScanType scanType, CancellationToken ct = default)
+    {
+        var targets = (await libraries.GetLibraryFoldersAsync(ct)).Where(l => l.IsEnabled).ToList();
+        if (targets.Count == 0)
+        {
+            return null;
+        }
+
+        return await RunAsync(targets, null, scanType, ct);
+    }
+
+    public void Dispose() => _gate.Dispose();
+
+    private async Task<ScanSummary> RunAsync(
+        List<LibraryFolder> targets, long? scanRunLibraryId, ScanType scanType, CancellationToken ct)
+    {
+        await _gate.WaitAsync(ct);
+        try
+        {
+            var single = targets.Count == 1 ? targets[0] : null;
+            var label = single is null ? null : single.DisplayName ?? single.Path;
+
+            notifications.ShowInfo(StartMessage(scanType, label));
+            LogStarted(logger, targets.Count, scanType);
+
+            var scanId = await writer.ExecuteAsync(
+                (connection, transaction, token) =>
+                    scans.StartAsync(connection, transaction, scanType, scanRunLibraryId, UnixTime.Now(), token),
+                ct);
+
+            var totals = new Counts();
+            var accessible = 0;
+            try
+            {
+                foreach (var library in targets)
+                {
+                    ct.ThrowIfCancellationRequested();
+                    var tree = await Task.Run(() => fileSystem.ScanDirectoryTree(library.Path, ct), ct);
+                    var counts = await writer.ExecuteAsync(
+                        (connection, transaction, token) =>
+                            ApplyAsync(connection, transaction, library, scanId, tree, token),
+                        ct);
+                    totals.Add(counts);
+                    if (counts.RootAccessible)
+                    {
+                        accessible++;
+                    }
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                var cancelled = totals.ToSummary(scanId, OperationStatus.Cancelled, "スキャンをキャンセルしました");
+                await FinishAsync(scanType, cancelled, "CANCELLED", single?.Path);
+                notifications.ShowInfo(cancelled.Message);
+                throw;
+            }
+            catch (Exception ex)
+            {
+                LogFailed(logger, ex);
+                var failed = totals.ToSummary(
+                    scanId,
+                    OperationStatus.Failed,
+                    label is null ? "スキャンに失敗しました" : Format($"「{label}」のスキャンに失敗しました"));
+                await FinishAsync(scanType, failed, "UNEXPECTED_ERROR", single?.Path);
+                notifications.ShowError(failed.Message);
+                return failed;
+            }
+
+            // 全件にアクセスできなければ失敗、一部でも確認できなかった範囲があれば一部失敗
+            var status = accessible == 0
+                ? OperationStatus.Failed
+                : totals.Failed > 0 ? OperationStatus.Partial : OperationStatus.Success;
+            var message = status == OperationStatus.Failed && single is not null
+                ? Format($"「{single.Path}」にアクセスできません")
+                : BuildCountsMessage(scanType, totals);
+            var summary = totals.ToSummary(scanId, status, message);
+
+            await FinishAsync(scanType, summary, ErrorCodeOf(status), single?.Path);
+            Notify(scanType, summary);
+            LogCompleted(logger, summary.Status, summary.Added, summary.Changed, summary.Missing, summary.Failed);
+            return summary;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// 1つの管理フォルダについて、列挙結果をDBへ反映する。アクセスできなかった範囲の既存登録は「不在」にしない。
+    /// </summary>
+    private async Task<Counts> ApplyAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         LibraryFolder library,
@@ -88,11 +144,7 @@ public sealed partial class ScanService(
         {
             // 登録フォルダ自体に入れない(ネットワーク切断など)。配下の登録は一切変更しない。
             await libraries.SetScanStateAsync(connection, transaction, library.Id, "UNAVAILABLE", null, now, ct);
-            var unavailable = new ScanSummary(
-                scanId, OperationStatus.Failed, 0, 0, 0, 0, 0,
-                string.Create(CultureInfo.CurrentCulture, $"「{library.Path}」にアクセスできません"));
-            await scans.CompleteAsync(connection, transaction, scanId, unavailable.Status, unavailable, now, ct);
-            return unavailable;
+            return new Counts { Failed = 1, RootAccessible = false };
         }
 
         var knownFolders = await libraries.GetFoldersAsync(connection, transaction, library.Id, ct);
@@ -104,11 +156,7 @@ public sealed partial class ScanService(
         var seenFolderIds = new HashSet<long>();
         var seenArchiveIds = new HashSet<long>();
         var unverifiedRoots = new List<string>();
-        var discovered = 0;
-        var added = 0;
-        var changed = 0;
-        var missing = 0;
-        var failed = tree.FailedCount;
+        var counts = new Counts { Failed = tree.FailedCount };
 
         using var batch = archives.CreateBatch(connection, transaction);
 
@@ -140,7 +188,7 @@ public sealed partial class ScanService(
 
             foreach (var file in directory.Archives)
             {
-                discovered++;
+                counts.Discovered++;
                 var fullPath = Path.Combine(directory.FullPath, file.FileName);
 
                 if (archiveByKey.TryGetValue((folderId, Key(file.FileName)), out var record))
@@ -153,20 +201,20 @@ public sealed partial class ScanService(
                     {
                         if (!StillMatches(fullPath, file))
                         {
-                            failed++;
+                            counts.Failed++;
                             continue;
                         }
 
                         await batch.UpdateChangedAsync(
                             record.Id, file.FileName, file.FileSize, file.LastWriteTime, scanId, now, ct);
-                        changed++;
+                        counts.Changed++;
                     }
                     else
                     {
                         await batch.MarkSeenAsync(record.Id, file.FileName, scanId, now, ct);
                         if (isRestored)
                         {
-                            changed++;
+                            counts.Changed++;
                         }
                     }
                 }
@@ -174,12 +222,12 @@ public sealed partial class ScanService(
                 {
                     if (!StillMatches(fullPath, file))
                     {
-                        failed++;
+                        counts.Failed++;
                         continue;
                     }
 
                     await batch.InsertAsync(folderId, file.FileName, file.FileSize, file.LastWriteTime, scanId, now, ct);
-                    added++;
+                    counts.Added++;
                 }
             }
         }
@@ -195,7 +243,7 @@ public sealed partial class ScanService(
             }
 
             await batch.MarkMissingAsync(record.Id, now, ct);
-            missing++;
+            counts.Missing++;
         }
 
         foreach (var folder in knownFolders)
@@ -206,13 +254,8 @@ public sealed partial class ScanService(
             }
         }
 
-        var status = failed == 0 ? OperationStatus.Success : OperationStatus.Partial;
-        var summary = new ScanSummary(scanId, status, discovered, added, changed, missing, failed, string.Empty);
-        summary = summary with { Message = BuildCountsMessage(summary) };
-
         await libraries.SetScanStateAsync(connection, transaction, library.Id, Available, now, now, ct);
-        await scans.CompleteAsync(connection, transaction, scanId, status, summary, now, ct);
-        return summary;
+        return counts;
     }
 
     private async Task<long> InsertFolderAsync(
@@ -273,36 +316,30 @@ public sealed partial class ScanService(
     private static string Key(string fileName) => fileName.ToUpperInvariant();
 
     /// <summary>
-    /// スキャンの最終結果を操作履歴へ記録する。キャンセル済みの場合でも結果を残すため、
-    /// ここでの書き込みは呼び出し元のキャンセルトークンに従わない。
-    /// closeScanRun が true の場合は、ロールバックされて RUNNING のまま残った scan_runs も閉じる。
+    /// スキャン全体の最終結果を、scan_runs の完了と操作履歴へ記録する(同一トランザクション)。
+    /// キャンセル済みでも結果を残すため、この書き込みは呼び出し元のキャンセルトークンに従わない。
     /// </summary>
-    private async Task FinishAsync(
-        LibraryFolder library, ScanType scanType, ScanSummary summary, string? errorCode, bool closeScanRun)
+    private async Task FinishAsync(ScanType scanType, ScanSummary summary, string? errorCode, string? path)
     {
         var result = new OperationResult(
             scanType.ToOperationType(),
             summary.Status,
             summary.Message,
             AffectedCount: summary.Added + summary.Changed,
-            NewPath: library.Path,
+            NewPath: path,
             ErrorCode: summary.Status is OperationStatus.Success ? null : errorCode);
 
         await writer.ExecuteAsync(
             async (connection, transaction, token) =>
             {
-                if (closeScanRun)
-                {
-                    await scans.CompleteAsync(
-                        connection, transaction, summary.ScanId, summary.Status, summary, UnixTime.Now(), token);
-                }
-
+                await scans.CompleteAsync(
+                    connection, transaction, summary.ScanId, summary.Status, summary, UnixTime.Now(), token);
                 await history.InsertAsync(connection, transaction, result, token);
             },
             CancellationToken.None);
     }
 
-    private static string? ErrorCodeOf(ScanSummary summary) => summary.Status switch
+    private static string? ErrorCodeOf(OperationStatus status) => status switch
     {
         OperationStatus.Failed => "FILE_NOT_FOUND",
         OperationStatus.Partial => "ACCESS_DENIED",
@@ -314,15 +351,10 @@ public sealed partial class ScanService(
         switch (summary.Status)
         {
             case OperationStatus.Success:
-                if (scanType == ScanType.Startup && summary.Added + summary.Changed + summary.Missing == 0)
-                {
-                    notifications.ShowSuccess("ライブラリは最新です");
-                }
-                else
-                {
-                    notifications.ShowSuccess(summary.Message);
-                }
-
+                notifications.ShowSuccess(
+                    scanType == ScanType.Startup && summary.Added + summary.Changed + summary.Missing == 0
+                        ? "ライブラリは最新です"
+                        : summary.Message);
                 break;
             case OperationStatus.Partial:
                 notifications.ShowWarning(summary.Message);
@@ -333,30 +365,62 @@ public sealed partial class ScanService(
         }
     }
 
-    private static string BuildCountsMessage(ScanSummary s)
+    private static string BuildCountsMessage(ScanType scanType, Counts c)
     {
-        var text = string.Create(
-            CultureInfo.CurrentCulture,
-            $"スキャンが完了しました。追加{s.Added}件、変更{s.Changed}件、不在{s.Missing}件");
-        return s.Failed > 0
-            ? string.Create(CultureInfo.CurrentCulture, $"{text}、確認できなかったもの{s.Failed}件")
-            : text;
+        var prefix = scanType switch
+        {
+            ScanType.Initial => "スキャンが完了しました。",
+            ScanType.Manual => "再スキャンが完了しました。",
+            _ => "ライブラリを更新しました。",
+        };
+        var text = Format($"{prefix}追加{c.Added}件、変更{c.Changed}件、不在{c.Missing}件");
+        return c.Failed > 0 ? Format($"{text}、確認できなかったもの{c.Failed}件") : text;
     }
 
-    private static string StartMessage(ScanType scanType, string displayName) => scanType switch
+    private static string StartMessage(ScanType scanType, string? label) => scanType switch
     {
-        ScanType.Initial => string.Create(CultureInfo.CurrentCulture, $"「{displayName}」のスキャンを開始しました"),
+        ScanType.Initial => label is null ? "スキャンを開始しました" : Format($"「{label}」のスキャンを開始しました"),
         ScanType.Manual => "ライブラリの再スキャンを開始しました",
         ScanType.Startup => "ライブラリの更新を確認しています",
         _ => throw new ArgumentOutOfRangeException(nameof(scanType), scanType, null),
     };
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "スキャンを開始します。Path={Path} Type={Type}")]
-    private static partial void LogStarted(ILogger logger, string path, ScanType type);
+    private static string Format(FormattableString text) => text.ToString(CultureInfo.CurrentCulture);
 
-    [LoggerMessage(Level = LogLevel.Information, Message = "スキャンが終了しました。Path={Path} Status={Status} Added={Added} Changed={Changed} Missing={Missing} Failed={Failed}")]
-    private static partial void LogCompleted(ILogger logger, string path, OperationStatus status, int added, int changed, int missing, int failed);
+    /// <summary>1つ以上の管理フォルダのスキャン結果の集計。</summary>
+    private sealed class Counts
+    {
+        public int Discovered { get; set; }
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "スキャン中に予期しないエラーが発生しました。Path={Path}")]
-    private static partial void LogFailed(ILogger logger, Exception exception, string path);
+        public int Added { get; set; }
+
+        public int Changed { get; set; }
+
+        public int Missing { get; set; }
+
+        public int Failed { get; set; }
+
+        public bool RootAccessible { get; init; } = true;
+
+        public void Add(Counts other)
+        {
+            Discovered += other.Discovered;
+            Added += other.Added;
+            Changed += other.Changed;
+            Missing += other.Missing;
+            Failed += other.Failed;
+        }
+
+        public ScanSummary ToSummary(long scanId, OperationStatus status, string message) =>
+            new(scanId, status, Discovered, Added, Changed, Missing, Failed, message);
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "スキャンを開始します。対象フォルダ数={Count} Type={Type}")]
+    private static partial void LogStarted(ILogger logger, int count, ScanType type);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "スキャンが終了しました。Status={Status} Added={Added} Changed={Changed} Missing={Missing} Failed={Failed}")]
+    private static partial void LogCompleted(ILogger logger, OperationStatus status, int added, int changed, int missing, int failed);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "スキャン中に予期しないエラーが発生しました。")]
+    private static partial void LogFailed(ILogger logger, Exception exception);
 }

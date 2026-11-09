@@ -1,3 +1,4 @@
+using System.Windows;
 using System.Windows.Controls;
 using K35Viewer.ViewModels;
 
@@ -12,8 +13,16 @@ public partial class LibraryView : UserControl
         {
             if (DataContext is LibraryViewModel viewModel)
             {
-                await viewModel.LoadAsync();
+                await viewModel.InitializeAsync();
             }
         };
+    }
+
+    private void OnTreeSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
+    {
+        if (e.NewValue is FolderTreeItem item && DataContext is LibraryViewModel viewModel)
+        {
+            viewModel.OnFolderSelected(item);
+        }
     }
 }

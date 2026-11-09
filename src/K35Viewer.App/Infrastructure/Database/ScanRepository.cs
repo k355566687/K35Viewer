@@ -3,14 +3,14 @@ using Microsoft.Data.Sqlite;
 
 namespace K35Viewer.Infrastructure.Database;
 
-/// <summary>scan_runs の永続化。</summary>
+/// <summary>scan_runs の永続化。libraryFolderId が null のスキャンは、全登録フォルダを対象にした実行を表す。</summary>
 public sealed class ScanRepository
 {
     public async Task<long> StartAsync(
         SqliteConnection connection,
         SqliteTransaction transaction,
         ScanType scanType,
-        long libraryFolderId,
+        long? libraryFolderId,
         long now,
         CancellationToken ct)
     {

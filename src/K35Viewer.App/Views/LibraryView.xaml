@@ -4,45 +4,123 @@
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
     </UserControl.Resources>
-    <DockPanel Margin="16">
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
-            <Button Content="＋ フォルダを追加"
+    <Grid>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition Width="280" MinWidth="160" />
+            <ColumnDefinition Width="Auto" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- 左ナビゲーション: フォルダツリーとフォルダ追加 -->
+        <DockPanel Grid.Column="0" Margin="12">
+            <Button DockPanel.Dock="Bottom"
+                    Content="＋ フォルダを追加"
                     Command="{Binding AddFolderCommand}"
                     Padding="14,6"
+                    Margin="0,8,0,0"
                     AutomationProperties.Name="管理フォルダを追加" />
-            <TextBlock Text="スキャン中…"
-                       Margin="12,0,0,0"
-                       VerticalAlignment="Center"
-                       Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
-        </StackPanel>
-        <Grid>
-            <ListBox ItemsSource="{Binding Folders}"
-                     AutomationProperties.Name="管理フォルダ一覧"
-                     HorizontalContentAlignment="Stretch">
-                <ListBox.ItemTemplate>
-                    <DataTemplate>
-                        <StackPanel Margin="4,6">
-                            <TextBlock Text="{Binding Path}" FontWeight="SemiBold" />
-                            <TextBlock Text="{Binding Description}" Foreground="#555555" />
-                        </StackPanel>
-                    </DataTemplate>
-                </ListBox.ItemTemplate>
-            </ListBox>
-            <TextBlock Text="管理フォルダがありません。「フォルダを追加」から登録してください。"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       Foreground="#555555">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
-                        <Setter Property="Visibility" Value="Collapsed" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding HasFolders}" Value="False">
-                                <Setter Property="Visibility" Value="Visible" />
-                            </DataTrigger>
-                        </Style.Triggers>
+            <TextBlock DockPanel.Dock="Top"
+                       Text="ライブラリ"
+                       FontWeight="SemiBold"
+                       Margin="0,0,0,6" />
+            <TreeView ItemsSource="{Binding FolderRoots}"
+                      AutomationProperties.Name="フォルダツリー"
+                      VirtualizingPanel.IsVirtualizing="True"
+                      SelectedItemChanged="OnTreeSelectedItemChanged">
+                <TreeView.ItemContainerStyle>
+                    <Style TargetType="TreeViewItem">
+                        <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
+                        <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
+                        <Setter Property="AutomationProperties.Name" Value="{Binding Header}" />
                     </Style>
-                </TextBlock.Style>
-            </TextBlock>
-        </Grid>
-    </DockPanel>
+                </TreeView.ItemContainerStyle>
+                <TreeView.ItemTemplate>
+                    <HierarchicalDataTemplate ItemsSource="{Binding Children}">
+                        <TextBlock Text="{Binding Header}" Margin="2,2" />
+                    </HierarchicalDataTemplate>
+                </TreeView.ItemTemplate>
+            </TreeView>
+        </DockPanel>
+
+        <GridSplitter Grid.Column="1"
+                      Width="5"
+                      HorizontalAlignment="Center"
+                      VerticalAlignment="Stretch"
+                      ResizeBehavior="PreviousAndNext"
+                      AutomationProperties.Name="ナビゲーションの幅" />
+
+        <!-- 中央: 検索・並べ替え・一覧 -->
+        <DockPanel Grid.Column="2" Margin="12">
+            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+                <TextBlock Text="検索" VerticalAlignment="Center" Margin="0,0,6,0" />
+                <TextBox Width="260"
+                         Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
+                         VerticalContentAlignment="Center"
+                         Padding="4,3"
+                         ToolTip="ファイル名の一部を入力(空白で区切ると、すべてを含むものに絞り込みます)"
+                         AutomationProperties.Name="ファイル名で検索" />
+                <TextBlock Text="並べ替え" VerticalAlignment="Center" Margin="16,0,6,0" />
+                <ComboBox Width="130"
+                          ItemsSource="{Binding SortOptions}"
+                          SelectedItem="{Binding SelectedSortOption}"
+                          DisplayMemberPath="Label"
+                          AutomationProperties.Name="並べ替え項目" />
+                <CheckBox Content="降順"
+                          IsChecked="{Binding IsDescending}"
+                          VerticalAlignment="Center"
+                          Margin="10,0,0,0"
+                          AutomationProperties.Name="降順で並べ替え" />
+                <Button Content="再スキャン"
+                        Command="{Binding RescanCommand}"
+                        Padding="12,3"
+                        Margin="16,0,0,0"
+                        AutomationProperties.Name="ライブラリを再スキャン" />
+                <TextBlock Text="スキャン中…"
+                           Margin="12,0,0,0"
+                           VerticalAlignment="Center"
+                           Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
+            </StackPanel>
+
+            <TextBlock DockPanel.Dock="Bottom"
+                       Text="{Binding CountText}"
+                       Margin="0,6,0,0"
+                       Foreground="#444444"
+                       AutomationProperties.Name="表示件数" />
+
+            <Grid>
+                <!-- ListViewはScrollViewerやStackPanelの中に置かない(置くと仮想化が無効になる) -->
+                <ListView ItemsSource="{Binding Archives}"
+                          AutomationProperties.Name="アーカイブ一覧"
+                          VirtualizingPanel.IsVirtualizing="True"
+                          VirtualizingPanel.VirtualizationMode="Recycling"
+                          ScrollViewer.CanContentScroll="True">
+                    <ListView.View>
+                        <GridView>
+                            <GridViewColumn Header="ファイル名" Width="320" DisplayMemberBinding="{Binding FileName}" />
+                            <GridViewColumn Header="保存場所" Width="320" DisplayMemberBinding="{Binding Location}" />
+                            <GridViewColumn Header="画像枚数" Width="80" DisplayMemberBinding="{Binding ImageCountText}" />
+                            <GridViewColumn Header="ファイルサイズ" Width="110" DisplayMemberBinding="{Binding FileSizeText}" />
+                            <GridViewColumn Header="更新日時" Width="140" DisplayMemberBinding="{Binding LastWriteTimeText}" />
+                        </GridView>
+                    </ListView.View>
+                </ListView>
+                <TextBlock Text="{Binding EmptyMessage}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="#444444"
+                           IsHitTestVisible="False">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding EmptyMessage}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
+        </DockPanel>
+    </Grid>
 </UserControl>

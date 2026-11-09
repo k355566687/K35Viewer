@@ -48,6 +48,7 @@ public sealed record AddFolderResult(
 /// <summary>ライブラリ(管理フォルダ)に関する操作の窓口。</summary>
 public sealed partial class LibraryService(
     LibraryRepository libraries,
+    ArchiveRepository archives,
     HistoryRepository history,
     DatabaseWriter writer,
     FileSystemService fileSystem,
@@ -56,6 +57,45 @@ public sealed partial class LibraryService(
 {
     public Task<IReadOnlyList<LibraryFolderSummary>> GetLibraryFoldersAsync(CancellationToken ct = default) =>
         libraries.GetSummariesAsync(ct);
+
+    /// <summary>条件に一致するアーカイブを検索する(UC-03 / UC-04)。ZIP本体は開かず、SQLiteだけで応答する。</summary>
+    public Task<PagedResult<ArchiveSummary>> QueryArchivesAsync(ArchiveQuery query, CancellationToken ct = default) =>
+        archives.QueryAsync(query, ct);
+
+    /// <summary>
+    /// 登録フォルダを起点とするフォルダツリーを返す。起点は登録フォルダ(フルパス表示)、配下はフォルダ名で並べる。
+    /// 見つからなくなったフォルダ(UNAVAILABLE)とその配下は含めない。
+    /// 登録フォルダ自体に一時的にアクセスできない場合(ネットワーク切断等)は、起点を残して IsUnavailable とする。
+    /// </summary>
+    public async Task<IReadOnlyList<FolderNode>> GetFolderTreeAsync(CancellationToken ct = default)
+    {
+        var rows = await libraries.GetFolderTreeRowsAsync(ct);
+        var childrenByParent = rows
+            .Where(r => r.ParentFolderId is not null)
+            .ToLookup(r => r.ParentFolderId!.Value);
+
+        FolderNode Build(FolderTreeRow row, bool isRoot)
+        {
+            var children = childrenByParent[row.Id]
+                .Where(c => !string.Equals(c.FolderAvailability, "UNAVAILABLE", StringComparison.Ordinal))
+                .OrderBy(c => c.Name, StringComparer.OrdinalIgnoreCase)
+                .Select(c => Build(c, isRoot: false))
+                .ToList();
+            return new FolderNode(
+                row.Id,
+                isRoot ? row.FullPath : row.Name,
+                row.FullPath,
+                isRoot,
+                isRoot && string.Equals(row.LibraryAvailability, "UNAVAILABLE", StringComparison.Ordinal),
+                children);
+        }
+
+        return rows
+            .Where(r => r.ParentFolderId is null)
+            .OrderBy(r => r.FullPath, StringComparer.OrdinalIgnoreCase)
+            .Select(r => Build(r, isRoot: true))
+            .ToList();
+    }
 
     /// <summary>
     /// 管理フォルダを追加する(UC-01)。スキャンは行わない。呼び出し側が Added を受けて ScanService を実行する。

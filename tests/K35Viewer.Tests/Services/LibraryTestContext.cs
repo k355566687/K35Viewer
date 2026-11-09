@@ -41,7 +41,7 @@ internal sealed class LibraryTestContext : IDisposable
         ArchiveRepository = new ArchiveRepository(_db.Factory);
 
         Library = new LibraryService(
-            libraries, history, _writer, fileSystem, Notifications, NullLogger<LibraryService>.Instance);
+            libraries, ArchiveRepository, history, _writer, fileSystem, Notifications, NullLogger<LibraryService>.Instance);
         Scan = new ScanService(
             fileSystem, libraries, ArchiveRepository, new ScanRepository(), history, _writer, Notifications,
             NullLogger<ScanService>.Instance);
@@ -87,6 +87,7 @@ internal sealed class LibraryTestContext : IDisposable
 
     public void Dispose()
     {
+        Scan.Dispose();
         _writer.Dispose();
         _db.Dispose();
         if (Directory.Exists(Workspace))

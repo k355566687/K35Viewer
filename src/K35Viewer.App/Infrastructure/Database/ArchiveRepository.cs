@@ -23,6 +23,105 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         return (int)(long)(await command.ExecuteScalarAsync(ct))!;
     }
 
+    /// <summary>
+    /// 一覧用の検索。有効な(AVAILABLE)アーカイブだけを返す。
+    /// フォルダ指定時は再帰CTEで、そのフォルダ自身と配下のすべてのフォルダを対象にする。
+    /// SQLへ連結するのは固定の断片(並べ替え列・LIKE条件の枠)だけで、ユーザー入力は必ずパラメーターで渡す。
+    /// </summary>
+    public async Task<PagedResult<ArchiveSummary>> QueryAsync(ArchiveQuery query, CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+
+        var parameters = new List<(string Name, object? Value)>();
+        var cte = string.Empty;
+        var conditions = new List<string> { "a.availability_status = 'AVAILABLE'" };
+
+        if (query.FolderId is { } folderId)
+        {
+            cte = """
+                WITH RECURSIVE sub(id) AS (
+                    SELECT $folder
+                    UNION ALL
+                    SELECT f.id FROM folders f JOIN sub s ON f.parent_folder_id = s.id)
+                """;
+            conditions.Add("a.folder_id IN (SELECT id FROM sub)");
+            parameters.Add(("$folder", folderId));
+        }
+
+        var terms = (query.SearchText ?? string.Empty)
+            .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        for (var i = 0; i < terms.Length; i++)
+        {
+            conditions.Add($"a.file_name LIKE $term{i} ESCAPE '\\'");
+            parameters.Add(($"$term{i}", "%" + EscapeLike(terms[i]) + "%"));
+        }
+
+        var where = string.Join(" AND ", conditions);
+        var direction = query.Descending ? "DESC" : "ASC";
+        var orderBy = query.SortKey switch
+        {
+            ArchiveSortKey.FileName => $"a.file_name COLLATE NOCASE {direction}",
+            ArchiveSortKey.LastWriteTime => $"a.last_write_time {direction}",
+            ArchiveSortKey.FileSize => $"a.file_size {direction}",
+            // 未解析(NULL)は枚数0として扱い、昇順なら先頭、降順なら末尾に並べる
+            ArchiveSortKey.ImageCount => $"COALESCE(a.image_count, 0) {direction}",
+            _ => throw new ArgumentOutOfRangeException(nameof(query), query.SortKey, null),
+        };
+
+        var paging = string.Empty;
+        if (query.Limit is { } limit)
+        {
+            paging = " LIMIT $limit OFFSET $offset";
+            parameters.Add(("$limit", limit));
+            parameters.Add(("$offset", query.Offset ?? 0));
+        }
+        else if (query.Offset is { } offset)
+        {
+            paging = " LIMIT -1 OFFSET $offset";
+            parameters.Add(("$offset", offset));
+        }
+
+        var countSql = $"{cte} SELECT COUNT(*) FROM archives a WHERE {where}";
+        var listSql =
+            $"{cte} SELECT a.id, a.file_name, f.full_path, a.file_size, a.last_write_time, a.image_count, a.analysis_status " +
+            $"FROM archives a JOIN folders f ON a.folder_id = f.id WHERE {where} " +
+            $"ORDER BY {orderBy}, a.id{paging}";
+
+        await using var connection = await connectionFactory.OpenAsync(ct);
+
+        int total;
+        await using (var countCommand = SqlHelper.CreateCommand(
+            connection, null, countSql, parameters.Where(p => p.Name != "$limit" && p.Name != "$offset").ToArray()))
+        {
+            total = (int)(long)(await countCommand.ExecuteScalarAsync(ct))!;
+        }
+
+        var items = new List<ArchiveSummary>();
+        await using (var listCommand = SqlHelper.CreateCommand(connection, null, listSql, [.. parameters]))
+        {
+            await using var reader = await listCommand.ExecuteReaderAsync(ct);
+            while (await reader.ReadAsync(ct))
+            {
+                items.Add(new ArchiveSummary(
+                    reader.GetInt64(0),
+                    reader.GetString(1),
+                    reader.GetString(2),
+                    reader.GetInt64(3),
+                    reader.GetInt64(4),
+                    reader.IsDBNull(5) ? null : (int)reader.GetInt64(5),
+                    reader.GetString(6)));
+            }
+        }
+
+        return new PagedResult<ArchiveSummary>(items, total);
+    }
+
+    /// <summary>LIKEのワイルドカード(% _)とエスケープ文字を、文字そのものとして扱えるようにする。</summary>
+    internal static string EscapeLike(string term) =>
+        term.Replace("\\", "\\\\", StringComparison.Ordinal)
+            .Replace("%", "\\%", StringComparison.Ordinal)
+            .Replace("_", "\\_", StringComparison.Ordinal);
+
     /// <summary>登録フォルダ配下のすべてのアーカイブ(不在を含む)。スキャンの差分判定用。</summary>
     public async Task<IReadOnlyList<ArchiveRecord>> GetByLibraryAsync(
         SqliteConnection connection, SqliteTransaction? transaction, long libraryFolderId, CancellationToken ct)

@@ -1,4 +1,3 @@
-using System.Collections.ObjectModel;
 using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -8,12 +7,13 @@ using Microsoft.Extensions.Logging;
 
 namespace K35Viewer.ViewModels;
 
-/// <summary>登録フォルダ1件の表示用情報。</summary>
-public sealed record LibraryFolderItem(long Id, string Path, string Description);
+/// <summary>並べ替え項目の選択肢。</summary>
+public sealed record SortOption(ArchiveSortKey Key, string Label);
 
 /// <summary>
-/// ライブラリ画面のViewModel。Phase 2では管理フォルダの追加と一覧のみを扱う
-/// (アーカイブ一覧・検索・ソートはPhase 3)。
+/// ライブラリ画面のViewModel(SCR-01)。フォルダツリー、アーカイブ一覧、検索・ソート、
+/// 管理フォルダの追加、再スキャン、起動時の更新チェックを扱う。
+/// 一覧はSQLiteの検索結果だけで表示し、ZIP本体は開かない。
 /// </summary>
 public sealed partial class LibraryViewModel(
     LibraryService library,
@@ -21,30 +21,87 @@ public sealed partial class LibraryViewModel(
     IDialogService dialogs,
     ILogger<LibraryViewModel> logger) : ObservableObject, IDisposable
 {
-    private readonly CancellationTokenSource _cts = new();
-    private int _runningScans;
+    private static readonly TimeSpan SearchDebounce = TimeSpan.FromMilliseconds(250);
 
-    public ObservableCollection<LibraryFolderItem> Folders { get; } = [];
+    private static readonly IReadOnlyList<SortOption> AllSortOptions =
+    [
+        new(ArchiveSortKey.FileName, "ファイル名"),
+        new(ArchiveSortKey.LastWriteTime, "更新日時"),
+        new(ArchiveSortKey.FileSize, "ファイルサイズ"),
+        new(ArchiveSortKey.ImageCount, "画像枚数"),
+    ];
+
+    private readonly CancellationTokenSource _cts = new();
+    private CancellationTokenSource? _refreshCts;
+    private int _runningScans;
+    private bool _initialized;
+    private bool _hasLoadedArchives;
+    private long? _selectedFolderId;
+
+    public IReadOnlyList<SortOption> SortOptions => AllSortOptions;
+
+    /// <summary>左ナビゲーションのツリー。先頭は「すべて」、続いて登録フォルダ。</summary>
+    [ObservableProperty]
+    private IReadOnlyList<FolderTreeItem> _folderRoots = [];
+
+    /// <summary>中央の一覧。1万件でも項目ごとの変更通知を出さないよう、検索のたびに丸ごと差し替える。</summary>
+    [ObservableProperty]
+    private IReadOnlyList<ArchiveListItem> _archives = [];
 
     [ObservableProperty]
+    private string _searchText = string.Empty;
+
+    [ObservableProperty]
+    private SortOption _selectedSortOption = AllSortOptions[0];
+
+    [ObservableProperty]
+    private bool _isDescending;
+
+    [ObservableProperty]
+    private int _totalCount;
+
+    [ObservableProperty]
+    private string _countText = string.Empty;
+
+    /// <summary>一覧が空のときに表示する案内。空でなければ空文字。</summary>
+    [ObservableProperty]
+    private string _emptyMessage = string.Empty;
+
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RescanCommand))]
     private bool _hasFolders;
 
     [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RescanCommand))]
     private bool _isScanning;
 
-    /// <summary>登録フォルダ一覧をDBから読み込み直す。</summary>
-    public async Task LoadAsync()
+    /// <summary>
+    /// 画面表示後に1回だけ呼ぶ。一覧を読み込み、登録フォルダがあれば更新チェックをバックグラウンドで開始する(UC-17)。
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        if (_initialized)
+        {
+            return;
+        }
+
+        _initialized = true;
+        await ReloadAsync();
+
+        if (HasFolders)
+        {
+            // 更新チェックの完了を待たない。チェック中もライブラリを閲覧・検索できる
+            _ = RunScanAsync(ct => scan.ScanAllAsync(ScanType.Startup, ct));
+        }
+    }
+
+    /// <summary>フォルダツリーと一覧をDBから読み込み直す。</summary>
+    public async Task ReloadAsync()
     {
         try
         {
-            var summaries = await library.GetLibraryFoldersAsync(_cts.Token);
-            Folders.Clear();
-            foreach (var summary in summaries)
-            {
-                Folders.Add(new LibraryFolderItem(summary.Id, summary.Path, Describe(summary)));
-            }
-
-            HasFolders = Folders.Count > 0;
+            await LoadTreeAsync(_cts.Token);
+            await RefreshArchivesAsync(null);
         }
         catch (OperationCanceledException)
         {
@@ -54,6 +111,20 @@ public sealed partial class LibraryViewModel(
         {
             LogLoadFailed(logger, ex);
         }
+    }
+
+    /// <summary>ツリーで項目が選択されたときにViewから呼ばれる。</summary>
+    public void OnFolderSelected(FolderTreeItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (item.Id == _selectedFolderId)
+        {
+            return;
+        }
+
+        _selectedFolderId = item.Id;
+        _ = RefreshArchivesAsync(null);
     }
 
     [RelayCommand]
@@ -83,10 +154,11 @@ public sealed partial class LibraryViewModel(
                 return;
             }
 
-            await LoadAsync();
+            var libraryFolderId = result.LibraryFolderId!.Value;
+            await ReloadAsync();
 
             // スキャンは待たずに開始する。UIはスキャン中も操作できる。
-            _ = RunScanAsync(result.LibraryFolderId!.Value);
+            _ = RunScanAsync(ct => scan.ScanAsync(libraryFolderId, ScanType.Initial, ct));
         }
         catch (OperationCanceledException)
         {
@@ -98,15 +170,141 @@ public sealed partial class LibraryViewModel(
         }
     }
 
-    public void Dispose() => _cts.Dispose();
+    [RelayCommand(CanExecute = nameof(CanRescan))]
+    private Task RescanAsync() => RunScanAsync(ct => scan.ScanAllAsync(ScanType.Manual, ct));
 
-    private async Task RunScanAsync(long libraryFolderId)
+    private bool CanRescan() => HasFolders && !IsScanning;
+
+    public void Dispose()
+    {
+        _cts.Cancel();
+        _refreshCts?.Cancel();
+        _refreshCts?.Dispose();
+        _cts.Dispose();
+    }
+
+    partial void OnSearchTextChanged(string value) => _ = RefreshArchivesAsync(SearchDebounce);
+
+    partial void OnSelectedSortOptionChanged(SortOption value) => _ = RefreshArchivesAsync(null);
+
+    partial void OnIsDescendingChanged(bool value) => _ = RefreshArchivesAsync(null);
+
+    private async Task LoadTreeAsync(CancellationToken ct)
+    {
+        var nodes = await library.GetFolderTreeAsync(ct);
+
+        // 再構築しても、展開状態と選択を維持する
+        var previousRoots = FolderRoots;
+        var expanded = new HashSet<long>();
+        var previousRootIds = new HashSet<long>();
+        foreach (var root in previousRoots)
+        {
+            root.CollectExpandedIds(expanded);
+            if (root.Id is { } id)
+            {
+                previousRootIds.Add(id);
+            }
+        }
+
+        var all = FolderTreeItem.CreateAll();
+        var roots = new List<FolderTreeItem> { all };
+        roots.AddRange(nodes.Select(FolderTreeItem.From));
+
+        foreach (var root in roots)
+        {
+            root.ApplyExpandedIds(expanded);
+
+            // 新しく現れた登録フォルダは展開して見せる
+            if (root.Id is { } rootId && !previousRootIds.Contains(rootId))
+            {
+                root.IsExpanded = true;
+            }
+        }
+
+        var target = _selectedFolderId is { } selectedId
+            ? roots.Select(r => r.Find(selectedId)).FirstOrDefault(found => found is not null)
+            : null;
+        if (target is null)
+        {
+            // 選択していたフォルダがなくなった場合は「すべて」へ戻す
+            _selectedFolderId = null;
+            target = all;
+        }
+
+        target.IsSelected = true;
+        HasFolders = nodes.Count > 0;
+        FolderRoots = roots;
+    }
+
+    /// <summary>
+    /// 現在の条件で一覧を取得し直す。連続して呼ばれた場合は、前の取得をキャンセルして最後のものだけを反映する。
+    /// delay を指定すると、その時間だけ待ってから取得する(検索入力のデバウンス)。
+    /// </summary>
+    private async Task RefreshArchivesAsync(TimeSpan? delay)
+    {
+        var previous = _refreshCts;
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(_cts.Token);
+        _refreshCts = cts;
+        if (previous is not null)
+        {
+            await previous.CancelAsync();
+            previous.Dispose();
+        }
+
+        try
+        {
+            if (delay is { } wait)
+            {
+                await Task.Delay(wait, cts.Token);
+            }
+
+            var query = new ArchiveQuery(
+                _selectedFolderId,
+                SearchText,
+                SelectedSortOption.Key,
+                IsDescending);
+            var result = await library.QueryArchivesAsync(query, cts.Token);
+            cts.Token.ThrowIfCancellationRequested();
+
+            Archives = result.Items.Select(item => new ArchiveListItem(item)).ToList();
+            TotalCount = result.TotalCount;
+            CountText = string.Create(CultureInfo.CurrentCulture, $"{result.TotalCount:N0} 件");
+            _hasLoadedArchives = true;
+            UpdateEmptyMessage();
+        }
+        catch (OperationCanceledException)
+        {
+            // 新しい取得に置き換えられた、またはアプリ終了中
+        }
+        catch (Exception ex)
+        {
+            LogQueryFailed(logger, ex);
+        }
+    }
+
+    private void UpdateEmptyMessage()
+    {
+        if (!_hasLoadedArchives)
+        {
+            EmptyMessage = string.Empty;
+        }
+        else if (!HasFolders)
+        {
+            EmptyMessage = "管理フォルダがありません。「フォルダを追加」から登録してください。";
+        }
+        else
+        {
+            EmptyMessage = TotalCount == 0 ? "該当するアーカイブがありません" : string.Empty;
+        }
+    }
+
+    private async Task RunScanAsync(Func<CancellationToken, Task> work)
     {
         _runningScans++;
         IsScanning = true;
         try
         {
-            await Task.Run(() => scan.ScanAsync(libraryFolderId, ScanType.Initial, _cts.Token), _cts.Token);
+            await Task.Run(() => work(_cts.Token), _cts.Token);
         }
         catch (OperationCanceledException)
         {
@@ -114,7 +312,7 @@ public sealed partial class LibraryViewModel(
         }
         catch (Exception ex)
         {
-            LogScanFailed(logger, ex, libraryFolderId);
+            LogScanFailed(logger, ex);
         }
         finally
         {
@@ -122,26 +320,18 @@ public sealed partial class LibraryViewModel(
             IsScanning = _runningScans > 0;
         }
 
-        await LoadAsync();
+        await ReloadAsync();
     }
 
-    private static string Describe(LibraryFolderSummary summary)
-    {
-        var count = string.Create(CultureInfo.CurrentCulture, $"{summary.ArchiveCount:N0} 件");
-        return summary.AvailabilityStatus switch
-        {
-            "UNAVAILABLE" => count + "(現在アクセスできません)",
-            "UNKNOWN" => count + "(スキャン前)",
-            _ => count,
-        };
-    }
-
-    [LoggerMessage(Level = LogLevel.Error, Message = "管理フォルダ一覧の読み込みに失敗しました。")]
+    [LoggerMessage(Level = LogLevel.Error, Message = "フォルダツリーの読み込みに失敗しました。")]
     private static partial void LogLoadFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "アーカイブ一覧の取得に失敗しました。")]
+    private static partial void LogQueryFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "管理フォルダの追加に失敗しました。Path={Path}")]
     private static partial void LogAddFailed(ILogger logger, Exception exception, string path);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "スキャンに失敗しました。LibraryFolderId={Id}")]
-    private static partial void LogScanFailed(ILogger logger, Exception exception, long id);
+    [LoggerMessage(Level = LogLevel.Error, Message = "スキャンに失敗しました。")]
+    private static partial void LogScanFailed(ILogger logger, Exception exception);
 }
