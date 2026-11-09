@@ -1,5 +1,6 @@
 using System.Windows.Input;
 using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Services;
 using K35Viewer.Tests.Infrastructure;
@@ -13,7 +14,7 @@ public class ViewerViewModelTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static ViewerViewModel CreateViewer(LibraryTestContext ctx) =>
-        new(ctx.Viewer, new ViewerImageDecoder(), NullLogger<ViewerViewModel>.Instance);
+        new(ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
 
     private static async Task WaitUntilAsync(Func<bool> condition, int seconds = 15)
     {

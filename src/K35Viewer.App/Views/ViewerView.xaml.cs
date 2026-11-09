@@ -33,12 +33,47 @@ public partial class ViewerView : UserControl
         if (e.OldValue is ViewerViewModel oldViewModel)
         {
             oldViewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            oldViewModel.ScrollToRowRequested -= OnScrollToRowRequested;
         }
 
         if (e.NewValue is ViewerViewModel newViewModel)
         {
             newViewModel.PropertyChanged += OnViewModelPropertyChanged;
+            newViewModel.ScrollToRowRequested += OnScrollToRowRequested;
             UpdateViewport();
+        }
+    }
+
+    // 一覧表示: 現在位置の画像がある行を画面に表示する（表示の準備が整ってから）
+    private void OnScrollToRowRequested(object? sender, int rowIndex)
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        _ = Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (ViewModel is { } viewModel && rowIndex >= 0 && rowIndex < viewModel.PageRows.Count)
+                {
+                    PageList.ScrollIntoView(viewModel.PageRows[rowIndex]);
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
+
+    // 一覧表示: 領域の幅に合わせて、1行に並べる枚数を決め直す（縦スクロールバーの幅は除く）
+    private void OnPageListSizeChanged(object sender, SizeChangedEventArgs e) =>
+        ViewModel?.UpdateListViewport(e.NewSize.Width - SystemParameters.VerticalScrollBarWidth - 8);
+
+    // 一覧表示: クリックで選択（Ctrl / Shift で複数選択）、ダブルクリックでその画像を1枚表示
+    private void OnPageCellMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: PageItem item })
+        {
+            ViewModel?.OnPageClicked(item.Index, Keyboard.Modifiers, e.ClickCount);
+            e.Handled = true;
         }
     }
 

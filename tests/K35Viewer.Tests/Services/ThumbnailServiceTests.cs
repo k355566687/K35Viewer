@@ -1,4 +1,5 @@
 using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Services;
 using K35Viewer.Tests.Infrastructure;
@@ -193,6 +194,79 @@ public class ThumbnailServiceTests
         Assert.Equal("READY", (await SingleAsync(ctx, "a.zip")).AnalysisStatus);
     }
 
+    private static readonly TimeSpan[] ShortDelays = [TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1)];
+
+    [Fact]
+    public async Task ProcessPendingAsync_一時的なIOエラーなら_再試行して成功すればREADYにする()
+    {
+        using var ctx = new LibraryTestContext();
+        await ctx.InitializeAsync();
+        ctx.CreateZip("a.zip", ("1.jpg", TestImages.Jpeg(100, 100)));
+        await ctx.RegisterAndScanAsync();
+        var flaky = new FlakyArchiveReader(ctx.Reader, "IO_ERROR", failures: 2);
+
+        await ctx.CreateThumbnailService(flaky, ShortDelays).ProcessPendingAsync(ct: Ct);
+
+        Assert.Equal(3, flaky.AnalyzeCalls);
+        Assert.Equal("READY", (await SingleAsync(ctx, "a.zip")).AnalysisStatus);
+    }
+
+    [Fact]
+    public async Task ProcessPendingAsync_一時的なエラーが続けば_決められた回数で諦めてERRORにする()
+    {
+        using var ctx = new LibraryTestContext();
+        await ctx.InitializeAsync();
+        ctx.CreateZip("a.zip", ("1.jpg", TestImages.Jpeg(100, 100)));
+        await ctx.RegisterAndScanAsync();
+        var flaky = new FlakyArchiveReader(ctx.Reader, "ACCESS_DENIED", failures: int.MaxValue);
+
+        await ctx.CreateThumbnailService(flaky, ShortDelays).ProcessPendingAsync(ct: Ct);
+
+        Assert.Equal(3, flaky.AnalyzeCalls); // 最初の1回 + 再試行2回
+        Assert.Equal("ERROR", (await SingleAsync(ctx, "a.zip")).AnalysisStatus);
+    }
+
+    [Theory]
+    [InlineData("FILE_NOT_FOUND")]
+    [InlineData("ARCHIVE_BROKEN")]
+    public async Task ProcessPendingAsync_待っても変わらないエラーは_再試行しない(string errorCode)
+    {
+        using var ctx = new LibraryTestContext();
+        await ctx.InitializeAsync();
+        ctx.CreateZip("a.zip", ("1.jpg", TestImages.Jpeg(100, 100)));
+        await ctx.RegisterAndScanAsync();
+        var flaky = new FlakyArchiveReader(ctx.Reader, errorCode, failures: int.MaxValue);
+
+        await ctx.CreateThumbnailService(flaky, ShortDelays).ProcessPendingAsync(ct: Ct);
+
+        Assert.Equal(1, flaky.AnalyzeCalls);
+    }
+
+    /// <summary>解析を最初の指定回数だけ指定のエラーで失敗させ、以降は実際のリーダーに任せる。</summary>
+    private sealed class FlakyArchiveReader(IArchiveReader inner, string errorCode, int failures) : IArchiveReader
+    {
+        private int _analyzeCalls;
+
+        public int AnalyzeCalls => Volatile.Read(ref _analyzeCalls);
+
+        public ArchiveAnalysis Analyze(string archivePath, CancellationToken ct = default)
+        {
+            var call = Interlocked.Increment(ref _analyzeCalls);
+            if (call <= failures)
+            {
+                var status = errorCode == "ARCHIVE_BROKEN" ? ArchiveAnalysisStatus.Broken : ArchiveAnalysisStatus.Error;
+                return new ArchiveAnalysis(status, 0, [], errorCode, "テスト用の失敗");
+            }
+
+            return inner.Analyze(archivePath, ct);
+        }
+
+        public byte[] ReadEntry(string archivePath, string entryName, long maxBytes, CancellationToken ct = default) =>
+            inner.ReadEntry(archivePath, entryName, maxBytes, ct);
+
+        public ArchiveOpenResult Open(string archivePath, CancellationToken ct = default) => inner.Open(archivePath, ct);
+    }
+
     [Fact]
     public async Task ProcessAsync_スキャン前に外部で変更されたファイルは_処理せず見送る()
     {
@@ -365,7 +439,11 @@ public class ThumbnailServiceTests
         // 続きから再開できる
         var resumed = await ctx.Thumbnails.ProcessPendingAsync(ct: Ct);
         Assert.Equal(30 - done, resumed!.Total);
-        Assert.Equal(30, await ctx.ScalarAsync("SELECT COUNT(*) FROM thumbnail_cache WHERE status = 'READY'"));
+        var ready = await ctx.ScalarAsync("SELECT COUNT(*) FROM thumbnail_cache WHERE status = 'READY'");
+        var notReady = await ctx.StringAsync(
+            "SELECT COALESCE(group_concat(a.file_name || ':' || a.analysis_status || ':' || COALESCE(t.status, 'none') || ':' || COALESCE(a.error_code, '-'), ' / '), '') " +
+            "FROM archives a LEFT JOIN thumbnail_cache t ON t.archive_id = a.id WHERE t.status IS NOT 'READY'");
+        Assert.True(ready == 30, $"READY={ready} 再開={resumed} 中断時の完了={done} 未完了=[{notReady}]");
     }
 
     private sealed class SynchronousProgress<T>(Action<T> handler) : IProgress<T>

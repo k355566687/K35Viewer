@@ -3,6 +3,7 @@ using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Services;
 using Microsoft.Extensions.Logging;
@@ -23,17 +24,28 @@ public enum ZoomMode
 }
 
 /// <summary>
-/// ビューア画面（SCR-02）のViewModel。1枚表示、前後移動、拡大・縮小、フィット・原寸、全画面、
-/// 最終閲覧位置の記録を扱う。画像の表示はデコード済みの画像を受け取るだけで、ZIPを直接操作しない。
+/// ビューア画面（SCR-02）のViewModel。1枚表示と一覧表示（サムネイルグリッド）、前後移動、拡大・縮小、
+/// フィット・原寸、全画面、画像の選択、最終閲覧位置の記録を扱う。
+/// 「現在位置」は、1枚表示と一覧表示で同じ値（<see cref="ViewerSession.CurrentIndex"/>）を使う。
+/// 画像の表示はデコード済みの画像を受け取るだけで、ZIPを直接操作しない。
 /// </summary>
 public sealed partial class ViewerViewModel(
     ViewerService viewerService,
     ViewerImageDecoder decoder,
+    ThumbnailGenerator thumbnailGenerator,
     ILogger<ViewerViewModel> logger) : ObservableObject, IDisposable
 {
-    /// <summary>キー操作の案内（画面に表示する）。</summary>
-    public const string KeyHelp =
-        "←/→ 前後の頁　+/− 拡大・縮小　0 フィット　1 原寸　F11 全画面　Esc ライブラリへ戻る";
+    /// <summary>一覧表示の1枚の幅（余白を含む）。この幅で1行に並べる枚数を決める。</summary>
+    public const double PageCellWidth = 176;
+
+    /// <summary>一覧表示で、PageUp / PageDown が動く行数。</summary>
+    public const int PageStepRows = 3;
+
+    private const string SingleViewHelp =
+        "←/→ 前後の頁　+/− 拡大・縮小　0 フィット　1 原寸　G 一覧表示　F11 全画面　Esc ライブラリへ戻る";
+
+    private const string ListViewHelp =
+        "矢印キー 移動　Shift/Ctrl+クリック 複数選択　Space 選択の切替　Ctrl+A 全選択　Enter 開く　G 1枚表示　Esc ライブラリへ戻る";
 
     /// <summary>拡大・縮小の段階。</summary>
     private static readonly double[] ZoomSteps =
@@ -42,11 +54,16 @@ public sealed partial class ViewerViewModel(
     /// <summary>頁を移動してから、最後に閲覧した位置を保存するまでの待ち時間（めくるたびに書き込まないため）。</summary>
     private static readonly TimeSpan SaveDelay = TimeSpan.FromMilliseconds(800);
 
+    private readonly SynchronizationContext? _uiContext = SynchronizationContext.Current;
+    private readonly HashSet<int> _selected = [];
     private ViewerSession? _session;
     private PageImageLoader? _loader;
+    private PageThumbnailSource? _thumbnailSource;
     private CancellationTokenSource? _saveCts;
     private int _showVersion;
     private int _savedIndex = -1;
+    private int _anchorIndex;
+    private int _markedCurrentIndex = -1;
     private ZoomMode _zoomMode = ZoomMode.Fit;
     private double _customScale = 1.0;
     private double _viewportWidth;
@@ -55,6 +72,11 @@ public sealed partial class ViewerViewModel(
 
     /// <summary>ライブラリへ戻る操作が行われた（Esc、戻るボタン）。画面の切り替えは呼び出し側が行う。</summary>
     public event EventHandler? CloseRequested;
+
+    /// <summary>
+    /// 一覧表示で、指定した行（0始まり）を画面に表示してほしい。現在位置が動いたとき、または一覧表示に切り替えたときに発行する。
+    /// </summary>
+    public event EventHandler<int>? ScrollToRowRequested;
 
     [ObservableProperty]
     private bool _isOpen;
@@ -94,15 +116,51 @@ public sealed partial class ViewerViewModel(
     [NotifyPropertyChangedFor(nameof(ShowToolbar))]
     private bool _isFullScreen;
 
+    /// <summary>true なら一覧表示（サムネイルグリッド）、false なら1枚表示。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSingleView))]
+    [NotifyPropertyChangedFor(nameof(ViewModeToggleText))]
+    [NotifyPropertyChangedFor(nameof(HelpText))]
+    private bool _isListView;
+
+    /// <summary>アーカイブ内のすべての画像（一覧表示の1枚ずつ）。アーカイブを開いている間だけ入る。</summary>
+    [ObservableProperty]
+    private IReadOnlyList<PageItem> _pages = [];
+
+    /// <summary>一覧表示用に、画像を1行ぶんずつにまとめたもの。一覧表示のときだけ作る。</summary>
+    [ObservableProperty]
+    private IReadOnlyList<PageRow> _pageRows = [];
+
+    /// <summary>一覧表示で1行に並べる枚数。表示領域の幅から決まる。</summary>
+    [ObservableProperty]
+    private int _columnCount = 6;
+
+    /// <summary>選択されている画像の数。</summary>
+    [ObservableProperty]
+    private int _selectedCount;
+
+    /// <summary>「選択 3枚」の形式。選択がなければ空。</summary>
+    [ObservableProperty]
+    private string _selectionText = string.Empty;
+
     /// <summary>上部のツールバーを表示するか。全画面では画像を最大に使うため隠す。</summary>
     public bool ShowToolbar => !IsFullScreen;
 
-    public string HelpText => KeyHelp;
+    public bool IsSingleView => !IsListView;
+
+    /// <summary>表示方式を切り替えるボタンの文字（切り替え先を示す）。</summary>
+    public string ViewModeToggleText => IsListView ? "1枚表示（G）" : "一覧表示（G）";
+
+    /// <summary>キー操作の案内。表示方式によって異なる。</summary>
+    public string HelpText => IsListView ? ListViewHelp : SingleViewHelp;
 
     public ZoomMode ZoomMode => _zoomMode;
 
     /// <summary>現在の拡大率（画像の1画素を画面の何画素で表示するか）。画像がなければ 1。</summary>
     public double EffectiveScale { get; private set; } = 1.0;
+
+    /// <summary>選択されている画像の位置（昇順）。削除予約などの操作の対象になる。</summary>
+    public IReadOnlyList<int> SelectedIndices => [.. _selected.Order()];
 
     /// <summary>
     /// アーカイブを開いて最初の頁を表示する。開けなかった場合（理由はトーストで通知済み）は false。
@@ -123,8 +181,13 @@ public sealed partial class ViewerViewModel(
 
         _session = session;
         _loader = new PageImageLoader(session, decoder);
+        _thumbnailSource = new PageThumbnailSource(session, thumbnailGenerator);
         _savedIndex = -1;
+        _markedCurrentIndex = -1;
+        _anchorIndex = session.CurrentIndex;
+        Pages = [.. session.Entries.Select((entry, index) => new PageItem(index, entry.FullName, _thumbnailSource))];
         ArchiveName = session.ArchiveName;
+        IsListView = false;
         IsOpen = true;
         UpdatePosition();
         await ShowCurrentAsync();
@@ -146,18 +209,27 @@ public sealed partial class ViewerViewModel(
         _saveCts?.Cancel();
 
         var loader = _loader;
+        var thumbnailSource = _thumbnailSource;
         _loader = null;
+        _thumbnailSource = null;
         try
         {
             await SaveNowAsync(session);
         }
         finally
         {
+            thumbnailSource?.Dispose();
             loader?.Dispose();
             session.Dispose();
         }
 
         IsOpen = false;
+        IsListView = false;
+        Pages = [];
+        PageRows = [];
+        _selected.Clear();
+        SelectedCount = 0;
+        SelectionText = string.Empty;
         CurrentImage = null;
         ErrorText = string.Empty;
         IsLoading = false;
@@ -193,7 +265,7 @@ public sealed partial class ViewerViewModel(
         }
     }
 
-    /// <summary>画像を表示する領域の大きさと、画面の拡大率（DPI÷96）が変わったときにViewから呼ばれる。</summary>
+    /// <summary>画像を表示する領域の大きさと、画面の拡大率（DPI÷96）が変わったときにViewから呼ばれる（1枚表示）。</summary>
     public void UpdateViewport(double width, double height, double dpiScale)
     {
         _viewportWidth = Math.Max(0, width);
@@ -202,10 +274,17 @@ public sealed partial class ViewerViewModel(
         RecalculateDisplay();
     }
 
+    /// <summary>一覧表示の領域の幅が変わったときにViewから呼ばれる。1行に並べる枚数を決め直す。</summary>
+    public void UpdateListViewport(double width)
+    {
+        ColumnCount = Math.Max(1, (int)(width / PageCellWidth));
+    }
+
     /// <summary>
     /// キー操作を処理する。処理した場合は true（呼び出し側は、キーを他へ渡さない）。
-    /// ←/→・PageUp/PageDown・Space で前後、Home/End で先頭/末尾、+/− で拡大・縮小、0 でフィット、
-    /// 1 で原寸、F11 で全画面、Esc でライブラリへ戻る。
+    /// 共通: G で表示方式の切替、F11 で全画面、Esc でライブラリへ戻る。
+    /// 1枚表示: ←/→・PageUp/PageDown・Space で前後、Home/End で先頭/末尾、+/− で拡大・縮小、0 でフィット、1 で原寸。
+    /// 一覧表示: 矢印キーで移動（Shift で範囲選択）、Space で選択の切替、Ctrl+A で全選択、Enter で1枚表示。
     /// </summary>
     public bool HandleKey(Key key, ModifierKeys modifiers)
     {
@@ -216,40 +295,8 @@ public sealed partial class ViewerViewModel(
 
         switch (key)
         {
-            case Key.Right or Key.PageDown:
-                Next();
-                return true;
-            case Key.Left or Key.PageUp:
-                Previous();
-                return true;
-            case Key.Space:
-                if (modifiers.HasFlag(ModifierKeys.Shift))
-                {
-                    Previous();
-                }
-                else
-                {
-                    Next();
-                }
-
-                return true;
-            case Key.Home:
-                First();
-                return true;
-            case Key.End:
-                Last();
-                return true;
-            case Key.Add or Key.OemPlus:
-                ZoomIn();
-                return true;
-            case Key.Subtract or Key.OemMinus:
-                ZoomOut();
-                return true;
-            case Key.D0 or Key.NumPad0:
-                Fit();
-                return true;
-            case Key.D1 or Key.NumPad1:
-                ActualSize();
+            case Key.G when !modifiers.HasFlag(ModifierKeys.Control) && !modifiers.HasFlag(ModifierKeys.Alt):
+                ToggleViewMode();
                 return true;
             case Key.F11:
                 ToggleFullScreen();
@@ -258,9 +305,93 @@ public sealed partial class ViewerViewModel(
                 RequestClose();
                 return true;
             default:
-                return false;
+                return IsListView ? HandleListKey(key, modifiers) : HandleSingleKey(key, modifiers);
         }
     }
+
+    /// <summary>
+    /// 一覧表示で画像がクリックされたときにViewから呼ばれる。
+    /// 通常のクリックはその1枚だけを選択、Ctrl+クリックは選択の切替、Shift+クリックは範囲選択。
+    /// ダブルクリックは、その画像から1枚表示にする。いずれも現在位置がその画像に移る。
+    /// </summary>
+    public void OnPageClicked(int index, ModifierKeys modifiers, int clickCount)
+    {
+        if (!IsOpen || !IsListView || _session is null || index < 0 || index >= _session.Count)
+        {
+            return;
+        }
+
+        MoveCursor(index);
+        if (clickCount >= 2)
+        {
+            EnterSingleView();
+        }
+        else if (modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            SelectRange(_anchorIndex, index);
+        }
+        else if (modifiers.HasFlag(ModifierKeys.Control))
+        {
+            ToggleSelection(index);
+        }
+        else
+        {
+            SelectOnly(index);
+        }
+    }
+
+    /// <summary>選択を、指定した1枚だけにする（範囲選択の起点もその1枚になる）。</summary>
+    public void SelectOnly(int index)
+    {
+        if (!IsValid(index))
+        {
+            return;
+        }
+
+        SetSelection([index]);
+        _anchorIndex = index;
+    }
+
+    /// <summary>指定した1枚の選択を切り替える（範囲選択の起点もその1枚になる）。</summary>
+    public void ToggleSelection(int index)
+    {
+        if (!IsValid(index))
+        {
+            return;
+        }
+
+        var next = new HashSet<int>(_selected);
+        if (!next.Remove(index))
+        {
+            next.Add(index);
+        }
+
+        SetSelection(next);
+        _anchorIndex = index;
+    }
+
+    /// <summary>起点から指定した位置までを選択する（それまでの選択は置き換える。起点は変えない）。</summary>
+    public void SelectRange(int anchor, int index)
+    {
+        if (!IsValid(anchor) || !IsValid(index))
+        {
+            return;
+        }
+
+        var from = Math.Min(anchor, index);
+        var to = Math.Max(anchor, index);
+        SetSelection(Enumerable.Range(from, to - from + 1));
+    }
+
+    public void SelectAll()
+    {
+        if (_session is { } session)
+        {
+            SetSelection(Enumerable.Range(0, session.Count));
+        }
+    }
+
+    public void ClearSelection() => SetSelection([]);
 
     [RelayCommand(CanExecute = nameof(CanMoveNext))]
     private void Next() => MoveAndShow(session => session.MoveNext());
@@ -306,6 +437,24 @@ public sealed partial class ViewerViewModel(
     private void ToggleFullScreen() => IsFullScreen = !IsFullScreen;
 
     [RelayCommand]
+    private void ToggleViewMode()
+    {
+        if (!IsOpen)
+        {
+            return;
+        }
+
+        if (IsListView)
+        {
+            EnterSingleView();
+        }
+        else
+        {
+            EnterListView();
+        }
+    }
+
+    [RelayCommand]
     private void RequestClose() => CloseRequested?.Invoke(this, EventArgs.Empty);
 
     public void Dispose()
@@ -314,15 +463,250 @@ public sealed partial class ViewerViewModel(
         FlushForExit();
         _saveCts?.Dispose();
         _saveCts = null;
+        _thumbnailSource?.Dispose();
         _loader?.Dispose();
         _session?.Dispose();
+        _thumbnailSource = null;
         _loader = null;
         _session = null;
     }
 
+    partial void OnColumnCountChanged(int value) => RebuildRows();
+
+    partial void OnPagesChanged(IReadOnlyList<PageItem> value) => RebuildRows();
+
+    partial void OnIsListViewChanged(bool value) => RebuildRows();
+
     private bool CanMoveNext() => _session?.CanMoveNext ?? false;
 
     private bool CanMovePrevious() => _session?.CanMovePrevious ?? false;
+
+    private bool IsValid(int index) => _session is { } session && index >= 0 && index < session.Count;
+
+    private bool HandleSingleKey(Key key, ModifierKeys modifiers)
+    {
+        switch (key)
+        {
+            case Key.Right or Key.PageDown:
+                Next();
+                return true;
+            case Key.Left or Key.PageUp:
+                Previous();
+                return true;
+            case Key.Space:
+                if (modifiers.HasFlag(ModifierKeys.Shift))
+                {
+                    Previous();
+                }
+                else
+                {
+                    Next();
+                }
+
+                return true;
+            case Key.Home:
+                First();
+                return true;
+            case Key.End:
+                Last();
+                return true;
+            case Key.Add or Key.OemPlus:
+                ZoomIn();
+                return true;
+            case Key.Subtract or Key.OemMinus:
+                ZoomOut();
+                return true;
+            case Key.D0 or Key.NumPad0:
+                Fit();
+                return true;
+            case Key.D1 or Key.NumPad1:
+                ActualSize();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    private bool HandleListKey(Key key, ModifierKeys modifiers)
+    {
+        var extend = modifiers.HasFlag(ModifierKeys.Shift);
+        var columns = Math.Max(1, ColumnCount);
+        switch (key)
+        {
+            case Key.Right:
+                MoveCursorBy(1, extend);
+                return true;
+            case Key.Left:
+                MoveCursorBy(-1, extend);
+                return true;
+            case Key.Down:
+                MoveCursorBy(columns, extend);
+                return true;
+            case Key.Up:
+                MoveCursorBy(-columns, extend);
+                return true;
+            case Key.PageDown:
+                MoveCursorBy(columns * PageStepRows, extend);
+                return true;
+            case Key.PageUp:
+                MoveCursorBy(-columns * PageStepRows, extend);
+                return true;
+            case Key.Home:
+                MoveCursorTo(0, extend);
+                return true;
+            case Key.End:
+                MoveCursorTo((_session?.Count ?? 1) - 1, extend);
+                return true;
+            case Key.Space:
+                ToggleSelection(_session?.CurrentIndex ?? 0);
+                return true;
+            case Key.Enter:
+                EnterSingleView();
+                return true;
+            case Key.A when modifiers.HasFlag(ModifierKeys.Control):
+                SelectAll();
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// 一覧表示に切り替える。閲覧していた画像を選択状態にする。すでにその画像を含む複数選択があれば、
+    /// その選択を保つ（一覧と1枚表示を行き来しても、選択が失われない）。
+    /// </summary>
+    private void EnterListView()
+    {
+        if (_session is not { } session)
+        {
+            return;
+        }
+
+        _showVersion++; // 読み込み中の1枚表示の結果は、画面に反映しない
+        IsLoading = false;
+        IsListView = true;
+        if (!_selected.Contains(session.CurrentIndex))
+        {
+            SelectOnly(session.CurrentIndex);
+        }
+
+        _anchorIndex = session.CurrentIndex;
+        RequestScrollToCurrent();
+    }
+
+    /// <summary>1枚表示に切り替える。一覧表示で選んだ現在位置の画像を表示する。選択は保つ。</summary>
+    private void EnterSingleView()
+    {
+        if (_session is null)
+        {
+            return;
+        }
+
+        IsListView = false;
+        _ = ShowCurrentAsync();
+    }
+
+    private void MoveCursorBy(int delta, bool extend)
+    {
+        if (_session is { } session)
+        {
+            MoveCursorTo(Math.Clamp(session.CurrentIndex + delta, 0, session.Count - 1), extend);
+        }
+    }
+
+    private void MoveCursorTo(int index, bool extend)
+    {
+        if (!IsValid(index))
+        {
+            return;
+        }
+
+        MoveCursor(index);
+        if (extend)
+        {
+            SelectRange(_anchorIndex, index);
+        }
+        else
+        {
+            SelectOnly(index);
+        }
+    }
+
+    /// <summary>現在位置を動かす。一覧表示では画像は読み込まず、位置の表示と保存の予約だけを行う。</summary>
+    private void MoveCursor(int index)
+    {
+        if (_session is not { } session)
+        {
+            return;
+        }
+
+        if (session.MoveTo(index))
+        {
+            UpdatePosition();
+            ScheduleSave();
+        }
+
+        RequestScrollToCurrent();
+    }
+
+    private void RequestScrollToCurrent()
+    {
+        if (_session is { } session && IsListView)
+        {
+            ScrollToRowRequested?.Invoke(this, session.CurrentIndex / Math.Max(1, ColumnCount));
+        }
+    }
+
+    private void SetSelection(IEnumerable<int> indices)
+    {
+        var next = new HashSet<int>(indices);
+        if (next.SetEquals(_selected))
+        {
+            return;
+        }
+
+        foreach (var index in _selected.Except(next).ToList())
+        {
+            Pages[index].IsSelected = false;
+        }
+
+        foreach (var index in next.Except(_selected).ToList())
+        {
+            Pages[index].IsSelected = true;
+        }
+
+        _selected.Clear();
+        _selected.UnionWith(next);
+        SelectedCount = _selected.Count;
+        SelectionText = _selected.Count > 0
+            ? string.Create(CultureInfo.CurrentCulture, $"選択 {_selected.Count:N0}枚")
+            : string.Empty;
+    }
+
+    /// <summary>
+    /// 一覧表示のときだけ、画像を1行ずつにまとめる。1枚表示に戻したときは破棄する
+    /// （使っていない間は、行のオブジェクトを保持しない）。
+    /// </summary>
+    private void RebuildRows()
+    {
+        if (!IsListView || Pages.Count == 0)
+        {
+            PageRows = [];
+            return;
+        }
+
+        var columns = Math.Max(1, ColumnCount);
+        var source = Pages;
+        var rows = new List<PageRow>((source.Count + columns - 1) / columns);
+        for (var start = 0; start < source.Count; start += columns)
+        {
+            var count = Math.Min(columns, source.Count - start);
+            rows.Add(new PageRow(new ArraySegmentList<PageItem>(source, start, count)));
+        }
+
+        PageRows = rows;
+        RequestScrollToCurrent();
+    }
 
     private void MoveAndShow(Func<ViewerSession, bool> move)
     {
@@ -348,6 +732,23 @@ public sealed partial class ViewerViewModel(
 
         PositionText = string.Create(CultureInfo.CurrentCulture, $"{session.CurrentIndex + 1:N0} / {session.Count:N0}");
         EntryName = session.CurrentEntry.FullName;
+
+        // 一覧表示で「現在位置」として強調する画像を切り替える
+        if (_markedCurrentIndex != session.CurrentIndex)
+        {
+            if (_markedCurrentIndex >= 0 && _markedCurrentIndex < Pages.Count)
+            {
+                Pages[_markedCurrentIndex].IsCurrent = false;
+            }
+
+            if (session.CurrentIndex < Pages.Count)
+            {
+                Pages[session.CurrentIndex].IsCurrent = true;
+            }
+
+            _markedCurrentIndex = session.CurrentIndex;
+        }
+
         NotifyMoveCommands();
     }
 

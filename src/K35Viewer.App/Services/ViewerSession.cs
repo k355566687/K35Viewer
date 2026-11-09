@@ -66,6 +66,20 @@ public sealed class ViewerSession : IDisposable
 
     public bool MoveLast() => MoveTo(Count - 1);
 
+    /// <summary>
+    /// 指定した位置の画像のデータを読み出す（呼び出したスレッドで同期的に行う）。
+    /// 背景スレッドで動くサムネイル生成から使う。閉じたあとは <see cref="ObjectDisposedException"/>。
+    /// </summary>
+    public byte[] ReadImage(int index)
+    {
+        if (index < 0 || index >= Count)
+        {
+            throw new ArgumentOutOfRangeException(nameof(index), index, "画像の位置が範囲外です");
+        }
+
+        return _archive.ReadEntry(Entries[index].FullName, MaxImageBytes);
+    }
+
     /// <summary>指定した位置の画像のデータを、背景スレッドで読み出す。</summary>
     public Task<byte[]> ReadImageAsync(int index, CancellationToken ct = default)
     {

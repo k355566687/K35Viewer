@@ -1,4 +1,5 @@
 using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Services;
 using K35Viewer.Tests.Infrastructure;
@@ -17,7 +18,7 @@ internal sealed class MainTestHarness : IDisposable
         Notifications = new NotificationService();
         Library = new LibraryViewModel(
             ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, new NoDialogService(), NullLogger<LibraryViewModel>.Instance);
-        Viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), NullLogger<ViewerViewModel>.Instance);
+        Viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
         Toasts = new ToastHostViewModel(Notifications);
         Main = new MainViewModel(Library, Viewer, Toasts, Notifications, NullLogger<MainViewModel>.Instance);
     }

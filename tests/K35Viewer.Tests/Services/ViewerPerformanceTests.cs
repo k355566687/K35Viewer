@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using K35Viewer.Infrastructure.Archives;
+using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Services;
 using K35Viewer.Tests.Infrastructure;
@@ -63,7 +64,7 @@ public class ViewerPerformanceTests
 
         var openMs = stopwatch.ElapsedMilliseconds;
 
-        using var viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), NullLogger<ViewerViewModel>.Instance);
+        using var viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
         viewer.UpdateViewport(1600, 900, 1.0);
 
         // 最初の頁を表示するまで（読み出し＋デコード）
@@ -111,5 +112,72 @@ public class ViewerPerformanceTests
         Assert.True(sorted[sorted.Count / 2] < 1000, $"頁送りが遅すぎます（中央値）: {sorted[sorted.Count / 2]}ms");
         Assert.True(firstPageMs < 10_000, $"最初の頁の表示が遅すぎます: {firstPageMs}ms");
         await viewer.CloseAsync();
+    }
+
+    [Fact]
+    public async Task 一覧表示は_大きなページ画像でも画面が埋まるまでが短く_全体を見て回ってもメモリは増え続けない()
+    {
+        using var ctx = new LibraryTestContext();
+        await ctx.InitializeAsync();
+
+        const int pages = 150;
+        var page = TestImages.JpegPattern(2400, 3400);
+        ctx.CreateZip("big.zip", [.. Enumerable.Range(1, pages).Select(i => ($"{i:D4}.jpg", page))]);
+        await ctx.RegisterAndScanAsync();
+        using var viewer = new ViewerViewModel(
+            ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
+        Assert.True(await viewer.OpenAsync(await ctx.ScalarAsync("SELECT id FROM archives"), Ct));
+        viewer.UpdateListViewport(ViewerViewModel.PageCellWidth * 6);
+        viewer.ToggleViewModeCommand.Execute(null);
+
+        // 画面に最初に出る分（6列×3行）のサムネイルが揃うまで
+        var visible = viewer.Pages.Take(18).ToList();
+        var stopwatch = Stopwatch.StartNew();
+        await RequestAndWaitAsync(visible);
+        var firstScreenMs = stopwatch.ElapsedMilliseconds;
+
+        // 画面に出る分ずつ、全体を見て回る（スクロール）
+        var before = PrivateMemoryMb();
+        var peak = before;
+        stopwatch.Restart();
+        for (var start = 18; start < pages; start += 18)
+        {
+            await RequestAndWaitAsync(viewer.Pages.Skip(start).Take(18).ToList());
+            peak = Math.Max(peak, PrivateMemoryMb());
+        }
+
+        var scrollMs = stopwatch.ElapsedMilliseconds;
+        var after = PrivateMemoryMb();
+        var growthMb = after - before;
+        var peakGrowthMb = Math.Max(peak, after) - before;
+
+        TestContext.Current.SendDiagnosticMessage(
+            $"ビューア一覧: ZIP {pages}頁(2400x3400) / 最初の画面(18枚) {firstScreenMs}ms / 残りの{pages - 18}枚を18枚ずつ表示 {scrollMs}ms / " +
+            $"メモリ(プライベートバイト) 増加 {growthMb:F0}MB・最大の増加 {peakGrowthMb:F0}MB");
+
+        Assert.True(firstScreenMs < 20_000, $"最初の画面が埋まるまでが遅すぎます: {firstScreenMs}ms");
+        // 全頁のサムネイルを表示しても、デコード済みの画像は上限枚数までしか保持しない
+        Assert.True(peakGrowthMb < 600, $"メモリが増え続けています: 最大 {peakGrowthMb:F0}MB");
+        await viewer.CloseAsync();
+    }
+
+    /// <summary>指定した画像のサムネイルを要求し、すべて表示できるようになるまで待つ。</summary>
+    private static async Task RequestAndWaitAsync(List<PageItem> items)
+    {
+        var remaining = items.Count;
+        var done = new TaskCompletionSource();
+        foreach (var item in items)
+        {
+            item.PropertyChanged += (_, e) =>
+            {
+                if (e.PropertyName == nameof(PageItem.Thumbnail) && Interlocked.Decrement(ref remaining) == 0)
+                {
+                    done.TrySetResult();
+                }
+            };
+            _ = item.Thumbnail; // 画面に出た（バインドされた）ことで、生成が始まる
+        }
+
+        await done.Task.WaitAsync(TimeSpan.FromSeconds(60), Ct);
     }
 }

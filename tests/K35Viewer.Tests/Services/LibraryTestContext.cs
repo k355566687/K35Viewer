@@ -134,9 +134,10 @@ internal sealed class LibraryTestContext : IDisposable
     /// <summary>
     /// 新しいサムネイルサービスを作る(アプリの再起動に相当。同一セッション内で覚えている状態を持たない)。
     /// </summary>
-    public ThumbnailService CreateThumbnailService() =>
-        new(Reader, new ThumbnailGenerator(), Cache, _fileSystem, ArchiveRepository, _thumbnailRepository, _writer,
-            NullLogger<ThumbnailService>.Instance);
+    public ThumbnailService CreateThumbnailService(
+        IArchiveReader? reader = null, IReadOnlyList<TimeSpan>? retryDelays = null) =>
+        new(reader ?? Reader, new ThumbnailGenerator(), Cache, _fileSystem, ArchiveRepository, _thumbnailRepository,
+            _writer, NullLogger<ThumbnailService>.Instance, retryDelays);
 
     /// <summary>画像入りのZIPをワークスペースに作る。</summary>
     public string CreateZip(string relative, params (string Name, byte[] Data)[] entries) =>
@@ -179,6 +180,15 @@ internal sealed class LibraryTestContext : IDisposable
     {
         await using var connection = await OpenAsync();
         await TempDatabase.ExecuteAsync(connection, sql);
+    }
+
+    /// <summary>1つの文字列を返すクエリを実行する（診断用）。</summary>
+    public async Task<string> StringAsync(string sql)
+    {
+        await using var connection = await OpenAsync();
+        await using var command = connection.CreateCommand();
+        command.CommandText = sql;
+        return Convert.ToString(await command.ExecuteScalarAsync(TestContext.Current.CancellationToken), System.Globalization.CultureInfo.InvariantCulture) ?? string.Empty;
     }
 
     public async Task<long> ScalarAsync(string sql)

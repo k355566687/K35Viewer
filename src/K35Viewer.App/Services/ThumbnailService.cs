@@ -33,8 +33,18 @@ public sealed partial class ThumbnailService(
     ArchiveRepository archives,
     ThumbnailRepository thumbnails,
     DatabaseWriter writer,
-    ILogger<ThumbnailService> logger)
+    ILogger<ThumbnailService> logger,
+    IReadOnlyList<TimeSpan>? retryDelays = null)
 {
+    /// <summary>
+    /// 一時的な読み取りエラー（他のプログラム、特にウイルス対策ソフトがZIPをスキャンしている最中の共有違反や、
+    /// ネットワークの瞬断など）のときに、続けて再試行するまでの待ち時間。この回数だけ再試行する。
+    /// </summary>
+    public static IReadOnlyList<TimeSpan> DefaultRetryDelays { get; } =
+        [TimeSpan.FromMilliseconds(200), TimeSpan.FromMilliseconds(800)];
+
+    private readonly IReadOnlyList<TimeSpan> _retryDelays = retryDelays ?? DefaultRetryDelays;
+
     /// <summary>表紙として読み込む画像1枚の上限サイズ。これを超える画像は表紙にしない。</summary>
     public const long MaxImageBytes = 64L * 1024 * 1024;
 
@@ -153,7 +163,7 @@ public sealed partial class ThumbnailService(
     /// <summary>ZIPを開いて解析し、READYなら表紙をサムネイルにする。DBには触れない(CPU・ディスクを使う部分)。</summary>
     private ProcessingResult AnalyzeAndRender(ArchiveProcessingTarget target, CancellationToken ct)
     {
-        var analysis = reader.Analyze(target.FullPath, ct);
+        var analysis = AnalyzeWithRetry(target, ct);
         if (analysis.Status != ArchiveAnalysisStatus.Ready)
         {
             return new ProcessingResult(analysis, null);
@@ -180,6 +190,35 @@ public sealed partial class ThumbnailService(
 
         return new ProcessingResult(analysis, null, lastError ?? "表紙にできる画像がありません");
     }
+
+    /// <summary>
+    /// アーカイブを解析する。ファイルを読めなかった原因が一時的なもの（I/Oエラー、アクセス拒否）の場合は、
+    /// 短い間隔で再試行する。壊れている・暗号化されている・存在しない等、待っても変わらないものは再試行しない。
+    /// </summary>
+    private ArchiveAnalysis AnalyzeWithRetry(ArchiveProcessingTarget target, CancellationToken ct)
+    {
+        var analysis = reader.Analyze(target.FullPath, ct);
+        foreach (var delay in _retryDelays)
+        {
+            if (!IsTransientError(analysis))
+            {
+                break;
+            }
+
+            LogRetrying(logger, target.Id, analysis.ErrorCode, delay.TotalMilliseconds);
+            if (ct.WaitHandle.WaitOne(delay))
+            {
+                ct.ThrowIfCancellationRequested();
+            }
+
+            analysis = reader.Analyze(target.FullPath, ct);
+        }
+
+        return analysis;
+    }
+
+    private static bool IsTransientError(ArchiveAnalysis analysis) =>
+        analysis.Status == ArchiveAnalysisStatus.Error && analysis.ErrorCode is "IO_ERROR" or "ACCESS_DENIED";
 
     /// <summary>解析結果とサムネイルをDBへ反映する(ファイルの保存 → 1トランザクション)。</summary>
     private async Task<ArchiveProcessed?> PersistAsync(
@@ -313,6 +352,9 @@ public sealed partial class ThumbnailService(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "ファイルが失われたサムネイルを再生成待ちにしました。件数={Count}")]
     private static partial void LogRepaired(ILogger logger, int count);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "アーカイブを一時的に読めなかったため、再試行します。ArchiveId={Id} ErrorCode={Code} 待ち={DelayMs}ms")]
+    private static partial void LogRetrying(ILogger logger, long id, string? code, double delayMs);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "アーカイブが記録と異なる(外部で変更された)ため、処理を見送りました。ArchiveId={Id}")]
     private static partial void LogSkippedChanged(ILogger logger, long id);

@@ -440,9 +440,10 @@ public sealed partial class LibraryViewModel(
         IsGeneratingThumbnails = true;
         try
         {
-            // Progress<T> は作成した時点(UIスレッド)のコンテキストへ報告を返す
-            var progress = new Progress<ThumbnailProgress>(p =>
-                ThumbnailProgressText = p.Total == 0
+            // 報告は、UIスレッドへ順序を保って届ける（作成の終了後に、古い報告が表示を書き戻さないようにする）
+            var progress = new ContextProgress<ThumbnailProgress>(
+                _uiContext,
+                p => ThumbnailProgressText = p.Total == 0
                     ? string.Empty
                     : string.Create(CultureInfo.CurrentCulture, $"サムネイルを作成中… {p.Completed:N0} / {p.Total:N0}"));
 
@@ -504,6 +505,26 @@ public sealed partial class LibraryViewModel(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "サムネイルの作成に失敗しました。")]
     private static partial void LogThumbnailsFailed(ILogger logger, Exception exception);
+}
+
+/// <summary>
+/// 進捗の報告を、指定したコンテキスト（UIスレッド）へ、報告した順序のまま届ける。
+/// コンテキストがない場合は、報告したスレッドで同期的に処理する。
+/// <see cref="Progress{T}"/> は、コンテキストがないとスレッドプールへ投げるため、順序が保証されない。
+/// </summary>
+internal sealed class ContextProgress<T>(SynchronizationContext? context, Action<T> handler) : IProgress<T>
+{
+    public void Report(T value)
+    {
+        if (context is null)
+        {
+            handler(value);
+        }
+        else
+        {
+            context.Post(static state => ((Action)state!)(), () => handler(value));
+        }
+    }
 }
 
 /// <summary>元のリストの一部を、コピーせずに <see cref="IReadOnlyList{T}"/> として見せる。</summary>

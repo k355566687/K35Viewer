@@ -7,6 +7,83 @@
             <Setter Property="Padding" Value="12,4" />
             <Setter Property="Margin" Value="4,0,0,0" />
         </Style>
+
+        <!-- 一覧表示の1枚。選択は背景色と「✓」、現在位置は白い枠で示す（色だけに頼らない） -->
+        <DataTemplate x:Key="PageCell">
+            <Border Width="164"
+                    Margin="6"
+                    Padding="3"
+                    BorderThickness="2"
+                    CornerRadius="3"
+                    ToolTip="{Binding EntryName}"
+                    AutomationProperties.Name="{Binding DisplayName}"
+                    AutomationProperties.ItemStatus="{Binding StatusText}"
+                    MouseLeftButtonDown="OnPageCellMouseLeftButtonDown">
+                <Border.Style>
+                    <Style TargetType="Border">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Setter Property="BorderBrush" Value="Transparent" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                <Setter Property="Background" Value="#2F5D9E" />
+                            </DataTrigger>
+                            <DataTrigger Binding="{Binding IsCurrent}" Value="True">
+                                <Setter Property="BorderBrush" Value="White" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </Border.Style>
+                <StackPanel>
+                    <Grid Height="212" Background="#2E2E2E">
+                        <TextBlock Text="{Binding PlaceholderText}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   TextAlignment="Center"
+                                   Foreground="#BBBBBB" />
+                        <Image Source="{Binding Thumbnail}"
+                               Stretch="Uniform"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
+                        <TextBlock Text="✓"
+                                   HorizontalAlignment="Right"
+                                   VerticalAlignment="Top"
+                                   Margin="4"
+                                   Padding="5,1"
+                                   Foreground="White"
+                                   Background="#2F5D9E"
+                                   FontWeight="Bold">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                            <Setter Property="Visibility" Value="Visible" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                    </Grid>
+                    <TextBlock Text="{Binding DisplayName}"
+                               Foreground="White"
+                               TextTrimming="CharacterEllipsis"
+                               Margin="0,4,0,0" />
+                    <TextBlock Text="{Binding PageNumberText}" Foreground="#BBBBBB" />
+                </StackPanel>
+            </Border>
+        </DataTemplate>
+
+        <!-- 一覧表示の1行分。選択やフォーカスの枠は付けない -->
+        <DataTemplate x:Key="PageRowTemplate">
+            <ItemsControl ItemsSource="{Binding Items}"
+                          ItemTemplate="{StaticResource PageCell}"
+                          Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </DataTemplate>
     </UserControl.Resources>
     <Grid Background="#1E1E1E">
         <Grid.RowDefinitions>
@@ -39,93 +116,130 @@
                         ToolTip="全画面表示の切り替え (F11)"
                         AutomationProperties.Name="全画面表示の切り替え" />
                 <Button DockPanel.Dock="Right"
-                        Content="原寸"
-                        Command="{Binding ActualSizeCommand}"
+                        Content="{Binding ViewModeToggleText}"
+                        Command="{Binding ToggleViewModeCommand}"
                         Style="{StaticResource ToolbarButton}"
-                        ToolTip="原寸で表示 (1)"
-                        AutomationProperties.Name="原寸で表示" />
-                <Button DockPanel.Dock="Right"
-                        Content="フィット"
-                        Command="{Binding FitCommand}"
-                        Style="{StaticResource ToolbarButton}"
-                        ToolTip="ウィンドウに合わせる (0)"
-                        AutomationProperties.Name="ウィンドウに合わせる" />
-                <Button DockPanel.Dock="Right"
-                        Content="＋"
-                        Command="{Binding ZoomInCommand}"
-                        Style="{StaticResource ToolbarButton}"
-                        ToolTip="拡大 (+ / Ctrl+ホイール)"
-                        AutomationProperties.Name="拡大" />
-                <TextBlock DockPanel.Dock="Right"
-                           Text="{Binding ZoomText}"
-                           Foreground="White"
-                           VerticalAlignment="Center"
-                           MinWidth="110"
-                           TextAlignment="Center"
-                           AutomationProperties.Name="拡大率" />
-                <Button DockPanel.Dock="Right"
-                        Content="－"
-                        Command="{Binding ZoomOutCommand}"
-                        Style="{StaticResource ToolbarButton}"
-                        ToolTip="縮小 (− / Ctrl+ホイール)"
-                        AutomationProperties.Name="縮小" />
+                        ToolTip="1枚表示と一覧表示の切り替え (G)"
+                        AutomationProperties.Name="表示方式の切り替え" />
+                <!-- 拡大・縮小は1枚表示のときだけ -->
+                <StackPanel DockPanel.Dock="Right"
+                            Orientation="Horizontal"
+                            Margin="0,0,16,0"
+                            Visibility="{Binding IsSingleView, Converter={StaticResource BoolToVisibility}}">
+                    <Button Content="－"
+                            Command="{Binding ZoomOutCommand}"
+                            Style="{StaticResource ToolbarButton}"
+                            ToolTip="縮小 (− / Ctrl+ホイール)"
+                            AutomationProperties.Name="縮小" />
+                    <TextBlock Text="{Binding ZoomText}"
+                               Foreground="White"
+                               VerticalAlignment="Center"
+                               MinWidth="110"
+                               TextAlignment="Center"
+                               AutomationProperties.Name="拡大率" />
+                    <Button Content="＋"
+                            Command="{Binding ZoomInCommand}"
+                            Style="{StaticResource ToolbarButton}"
+                            ToolTip="拡大 (+ / Ctrl+ホイール)"
+                            AutomationProperties.Name="拡大" />
+                    <Button Content="フィット"
+                            Command="{Binding FitCommand}"
+                            Style="{StaticResource ToolbarButton}"
+                            ToolTip="ウィンドウに合わせる (0)"
+                            AutomationProperties.Name="ウィンドウに合わせる" />
+                    <Button Content="原寸"
+                            Command="{Binding ActualSizeCommand}"
+                            Style="{StaticResource ToolbarButton}"
+                            ToolTip="原寸で表示 (1)"
+                            AutomationProperties.Name="原寸で表示" />
+                </StackPanel>
             </DockPanel>
         </Border>
 
-        <!-- 画像の表示領域 -->
+        <!-- 表示領域: 1枚表示 / 一覧表示（どちらか一方だけを表示する） -->
         <Grid Grid.Row="1">
-            <ScrollViewer x:Name="PageScroll"
-                          HorizontalScrollBarVisibility="Auto"
-                          VerticalScrollBarVisibility="Auto"
-                          Focusable="False"
-                          AutomationProperties.Name="画像の表示領域"
-                          PreviewMouseWheel="OnPreviewMouseWheel"
-                          PreviewMouseLeftButtonDown="OnPreviewMouseLeftButtonDown"
-                          PreviewMouseMove="OnPreviewMouseMove"
-                          PreviewMouseLeftButtonUp="OnPreviewMouseLeftButtonUp"
-                          SizeChanged="OnPageScrollSizeChanged"
-                          ScrollChanged="OnPageScrollChanged">
-                <Grid x:Name="PageHost">
-                    <Image Source="{Binding CurrentImage}"
-                           Width="{Binding DisplayWidth}"
-                           Height="{Binding DisplayHeight}"
+            <!-- 1枚表示 -->
+            <Grid Visibility="{Binding IsSingleView, Converter={StaticResource BoolToVisibility}}">
+                <ScrollViewer x:Name="PageScroll"
+                              HorizontalScrollBarVisibility="Auto"
+                              VerticalScrollBarVisibility="Auto"
+                              Focusable="False"
+                              AutomationProperties.Name="画像の表示領域"
+                              PreviewMouseWheel="OnPreviewMouseWheel"
+                              PreviewMouseLeftButtonDown="OnPreviewMouseLeftButtonDown"
+                              PreviewMouseMove="OnPreviewMouseMove"
+                              PreviewMouseLeftButtonUp="OnPreviewMouseLeftButtonUp"
+                              SizeChanged="OnPageScrollSizeChanged"
+                              ScrollChanged="OnPageScrollChanged">
+                    <Grid x:Name="PageHost">
+                        <Image Source="{Binding CurrentImage}"
+                               Width="{Binding DisplayWidth}"
+                               Height="{Binding DisplayHeight}"
+                               HorizontalAlignment="Center"
+                               VerticalAlignment="Center"
+                               RenderOptions.BitmapScalingMode="HighQuality"
+                               AutomationProperties.Name="{Binding EntryName}" />
+                    </Grid>
+                </ScrollViewer>
+
+                <TextBlock Text="読み込み中…"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
-                           RenderOptions.BitmapScalingMode="HighQuality"
-                           AutomationProperties.Name="{Binding EntryName}" />
-                </Grid>
-            </ScrollViewer>
+                           Foreground="#DDDDDD"
+                           FontSize="16"
+                           IsHitTestVisible="False"
+                           Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
 
-            <TextBlock Text="読み込み中…"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       Foreground="#DDDDDD"
-                       FontSize="16"
-                       IsHitTestVisible="False"
-                       Visibility="{Binding IsLoading, Converter={StaticResource BoolToVisibility}}" />
+                <TextBlock Text="{Binding ErrorText}"
+                           HorizontalAlignment="Center"
+                           VerticalAlignment="Center"
+                           Foreground="#FFB4B4"
+                           FontSize="16"
+                           TextWrapping="Wrap"
+                           MaxWidth="600"
+                           IsHitTestVisible="False"
+                           AutomationProperties.LiveSetting="Polite">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Visibility" Value="Visible" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding ErrorText}" Value="">
+                                    <Setter Property="Visibility" Value="Collapsed" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
+            </Grid>
 
-            <TextBlock Text="{Binding ErrorText}"
-                       HorizontalAlignment="Center"
-                       VerticalAlignment="Center"
-                       Foreground="#FFB4B4"
-                       FontSize="16"
-                       TextWrapping="Wrap"
-                       MaxWidth="600"
-                       IsHitTestVisible="False"
-                       AutomationProperties.LiveSetting="Polite">
-                <TextBlock.Style>
-                    <Style TargetType="TextBlock">
-                        <Setter Property="Visibility" Value="Visible" />
-                        <Style.Triggers>
-                            <DataTrigger Binding="{Binding ErrorText}" Value="">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                            </DataTrigger>
-                        </Style.Triggers>
+            <!-- 一覧表示（ListBoxはScrollViewerやStackPanelの中に置かない。置くと仮想化が無効になる） -->
+            <ListBox x:Name="PageList"
+                     ItemsSource="{Binding PageRows}"
+                     ItemTemplate="{StaticResource PageRowTemplate}"
+                     Background="#1E1E1E"
+                     BorderThickness="0"
+                     AutomationProperties.Name="アーカイブ内の画像の一覧"
+                     VirtualizingPanel.IsVirtualizing="True"
+                     VirtualizingPanel.VirtualizationMode="Recycling"
+                     ScrollViewer.CanContentScroll="True"
+                     ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                     Visibility="{Binding IsListView, Converter={StaticResource BoolToVisibility}}"
+                     SizeChanged="OnPageListSizeChanged">
+                <ListBox.ItemContainerStyle>
+                    <Style TargetType="ListBoxItem">
+                        <Setter Property="Focusable" Value="False" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ListBoxItem">
+                                    <ContentPresenter />
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
                     </Style>
-                </TextBlock.Style>
-            </TextBlock>
+                </ListBox.ItemContainerStyle>
+            </ListBox>
 
-            <!-- 現在位置（全画面でも常に表示する） -->
+            <!-- 現在位置（全画面でも常に表示する）。一覧表示では選択数も -->
             <Border HorizontalAlignment="Right"
                     VerticalAlignment="Bottom"
                     Margin="12"
@@ -140,7 +254,14 @@
                                AutomationProperties.Name="現在位置" />
                     <TextBlock Text="{Binding ZoomText}"
                                Foreground="#CCCCCC"
-                               Margin="14,0,0,0" />
+                               Margin="14,0,0,0"
+                               Visibility="{Binding IsSingleView, Converter={StaticResource BoolToVisibility}}" />
+                    <TextBlock Text="{Binding SelectionText}"
+                               Foreground="#9CC2FF"
+                               FontWeight="SemiBold"
+                               Margin="14,0,0,0"
+                               Visibility="{Binding IsListView, Converter={StaticResource BoolToVisibility}}"
+                               AutomationProperties.Name="選択数" />
                 </StackPanel>
             </Border>
 
