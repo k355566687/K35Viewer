@@ -5,11 +5,20 @@
         Title="{Binding Title}"
         Width="1280"
         Height="800">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+    </Window.Resources>
     <Grid>
-        <views:LibraryView DataContext="{Binding Library}" />
+        <!-- どちらの画面も作り直さず、表示を切り替える（ライブラリへ戻ったときに状態が残る） -->
+        <Grid Visibility="{Binding IsLibraryVisible, Converter={StaticResource BoolToVisibility}}">
+            <views:LibraryView DataContext="{Binding Library}" />
+        </Grid>
+        <Grid Visibility="{Binding IsViewerVisible, Converter={StaticResource BoolToVisibility}}">
+            <views:ViewerView DataContext="{Binding Viewer}" />
+        </Grid>
         <views:ToastHost DataContext="{Binding Toasts}"
                          HorizontalAlignment="Right"
                          VerticalAlignment="Bottom"
-                         Margin="16" />
+                         Margin="16,16,16,56" />
     </Grid>
 </Window>

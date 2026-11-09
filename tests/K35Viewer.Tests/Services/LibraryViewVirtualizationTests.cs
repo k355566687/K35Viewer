@@ -1,10 +1,7 @@
 using System.Diagnostics;
-using System.Runtime.ExceptionServices;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
-using System.Windows.Media;
-using System.Windows.Threading;
 using K35Viewer.Domain;
 using K35Viewer.Services;
 using K35Viewer.ViewModels;
@@ -25,50 +22,10 @@ public class LibraryViewVirtualizationTests
         public bool ConfirmMerge(string parentPath, IReadOnlyList<string> childPaths) => false;
     }
 
-    private static void RunOnStaThread(Action action)
-    {
-        Exception? error = null;
-        var thread = new Thread(() =>
-        {
-            try
-            {
-                action();
-            }
-            catch (Exception ex)
-            {
-                error = ex;
-            }
-            finally
-            {
-                Dispatcher.CurrentDispatcher.InvokeShutdown();
-            }
-        });
-        thread.SetApartmentState(ApartmentState.STA);
-        thread.Start();
-        thread.Join();
-        if (error is not null)
-        {
-            ExceptionDispatchInfo.Capture(error).Throw();
-        }
-    }
+    private static void RunOnStaThread(Action action) => WpfTestHelper.RunOnStaThread(action);
 
     private static IEnumerable<T> Descendants<T>(DependencyObject root)
-        where T : DependencyObject
-    {
-        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
-        {
-            var child = VisualTreeHelper.GetChild(root, i);
-            if (child is T match)
-            {
-                yield return match;
-            }
-
-            foreach (var nested in Descendants<T>(child))
-            {
-                yield return nested;
-            }
-        }
-    }
+        where T : DependencyObject => WpfTestHelper.Descendants<T>(root);
 
     [Fact]
     public async Task 一覧は1万件を渡しても_画面に見える行だけを生成する()

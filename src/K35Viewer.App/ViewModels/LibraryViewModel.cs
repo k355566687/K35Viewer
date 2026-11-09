@@ -218,6 +218,18 @@ public sealed partial class LibraryViewModel(
         }
     }
 
+    /// <summary>アーカイブを開く操作が行われた（ダブルクリック、Enter）。画面の切り替えは呼び出し側が行う。</summary>
+    public event EventHandler<long>? OpenRequested;
+
+    [RelayCommand]
+    private void OpenArchive(ArchiveListItem? item)
+    {
+        if (item is not null)
+        {
+            OpenRequested?.Invoke(this, item.Id);
+        }
+    }
+
     [RelayCommand(CanExecute = nameof(CanRescan))]
     private Task RescanAsync() => RunScanAsync(ct => scan.ScanAllAsync(ScanType.Manual, ct));
 

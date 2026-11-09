@@ -14,6 +14,23 @@ internal static class TestImages
     public static byte[] Jpeg(int width, int height, byte red = 40, byte green = 90, byte blue = 200) =>
         Encode(new JpegBitmapEncoder { QualityLevel = 90 }, Pixels(width, height, (_, _) => (red, green, blue, 255)), width, height);
 
+    /// <summary>
+    /// 濃淡と縞のある画像のJPEG。単色よりも実際のページ画像に近く、デコードの負荷も現実的になる。
+    /// </summary>
+    public static byte[] JpegPattern(int width, int height) =>
+        Encode(
+            new JpegBitmapEncoder { QualityLevel = 85 },
+            Pixels(
+                width,
+                height,
+                (x, y) =>
+                {
+                    var stripe = ((x / 24) + (y / 24)) % 2 == 0 ? 0 : 40;
+                    return ((byte)((x * 255 / width) + stripe), (byte)((y * 255 / height) + stripe), (byte)(((x + y) * 255 / (width + height)) + stripe), (byte)255);
+                }),
+            width,
+            height);
+
     /// <summary>左半分が完全に透明、右半分が不透明な赤のPNG。</summary>
     public static byte[] PngHalfTransparent(int width, int height) =>
         Encode(

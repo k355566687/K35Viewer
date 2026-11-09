@@ -38,6 +38,18 @@ public sealed record ArchiveSummary(
     public string FullPath => Path.Combine(FolderPath, FileName);
 }
 
+/// <summary>アーカイブを開く(ビューアで閲覧する)ために必要な情報。</summary>
+public sealed record ArchiveOpenInfo(
+    long Id,
+    string FolderPath,
+    string FileName,
+    string AvailabilityStatus,
+    string? LastViewEntry,
+    int? LastViewIndex)
+{
+    public string FullPath => Path.Combine(FolderPath, FileName);
+}
+
 /// <summary>
 /// 解析・サムネイル生成の対象アーカイブ。FileSize / LastWriteTime はDBに記録されている値で、
 /// 処理前にファイルの現在の状態と照合し、外部で変更されていれば処理しない。

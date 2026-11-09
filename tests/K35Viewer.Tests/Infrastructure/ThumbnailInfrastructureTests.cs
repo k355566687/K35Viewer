@@ -307,6 +307,97 @@ public class ArchiveReaderTests : IDisposable
     }
 
     [Fact]
+    public void Open_画像を自然順に並べ_開いたまま内容を読み出せる()
+    {
+        var page2 = TestImages.Jpeg(20, 10);
+        var page10 = TestImages.Png(30, 10);
+        var path = TestZips.Create(
+            PathOf("book.zip"),
+            ("p10.png", page10), ("notes.txt", [1]), ("p2.jpg", page2), ("folder/", []), ("__MACOSX/._p2.jpg", [1]));
+
+        var result = Reader.Open(path, Ct);
+
+        Assert.Equal(ArchiveAnalysisStatus.Ready, result.Status);
+        using var archive = result.Archive!;
+        Assert.Equal(["p2.jpg", "p10.png"], archive.Images.Select(i => i.FullName));
+        Assert.Equal([page2.Length, page10.Length], archive.Images.Select(i => (int)i.Length));
+        Assert.Equal(page10, archive.ReadEntry("p10.png", 1_000_000, Ct));
+        Assert.Equal(page2, archive.ReadEntry("p2.jpg", 1_000_000, Ct));
+        Assert.Equal(page10, archive.ReadEntry("p10.png", 1_000_000, Ct)); // 同じ頁を何度でも読める
+    }
+
+    [Fact]
+    public void Open_開いている間も_他からの読み取りと名前の変更ができ_閉じるとファイルを手放す()
+    {
+        var path = TestZips.Create(PathOf("book.zip"), ("1.jpg", TestImages.Jpeg(20, 10)));
+        var archive = Reader.Open(path, Ct).Archive!;
+
+        using (File.OpenRead(path))
+        {
+            // 他のプログラムからも読める
+        }
+
+        var renamed = PathOf("renamed.zip");
+        File.Move(path, renamed); // 開いたままでも名前を変えられる(閲覧中の移動・名前変更を妨げない)
+        Assert.NotEmpty(archive.ReadEntry("1.jpg", 1_000_000, Ct));
+
+        archive.Dispose();
+        File.Delete(renamed); // 閉じたあとは削除できる
+        Assert.False(File.Exists(renamed));
+        Assert.Throws<ObjectDisposedException>(() => archive.ReadEntry("1.jpg", 1_000_000, Ct));
+        archive.Dispose(); // 二重に閉じても問題ない
+    }
+
+    [Fact]
+    public void Open_複数のスレッドから同時に読んでも_内容が壊れない()
+    {
+        var pages = Enumerable.Range(0, 8)
+            .Select(i => (Name: $"p{i:D2}.jpg", Data: TestImages.Jpeg(40 + (i * 8), 30 + (i * 4))))
+            .ToList();
+        var path = TestZips.Create(PathOf("book.zip"), [.. pages]);
+        using var archive = Reader.Open(path, Ct).Archive!;
+
+        Parallel.For(0, 400, new ParallelOptions { MaxDegreeOfParallelism = 8, CancellationToken = Ct }, i =>
+        {
+            var page = pages[i % pages.Count];
+            Assert.Equal(page.Data, archive.ReadEntry(page.Name, 1_000_000, Ct));
+        });
+    }
+
+    [Fact]
+    public void Open_読み出しの上限を超えるエントリは例外になる()
+    {
+        var path = TestZips.Create(PathOf("book.zip"), ("big.jpg", new byte[5000]));
+        using var archive = Reader.Open(path, Ct).Archive!;
+
+        Assert.Throws<InvalidDataException>(() => archive.ReadEntry("big.jpg", 1000, Ct));
+        Assert.Throws<FileNotFoundException>(() => archive.ReadEntry("none.jpg", 1000, Ct));
+    }
+
+    [Fact]
+    public void Open_開けない場合は_状態で返し_ファイルを開いたままにしない()
+    {
+        var text = TestZips.Create(PathOf("text.zip"), ("a.txt", [1]));
+        var secret = TestZips.CreateEncryptedLooking(PathOf("secret.zip"), ("1.jpg", TestImages.Jpeg(10, 10)));
+        var broken = PathOf("broken.zip");
+        File.WriteAllBytes(broken, new byte[100]);
+
+        Assert.Equal(ArchiveAnalysisStatus.Empty, Reader.Open(text, Ct).Status);
+        var encrypted = Reader.Open(secret, Ct);
+        Assert.Equal((ArchiveAnalysisStatus.Unsupported, "ARCHIVE_ENCRYPTED"), (encrypted.Status, encrypted.ErrorCode));
+        var brokenResult = Reader.Open(broken, Ct);
+        Assert.Equal((ArchiveAnalysisStatus.Broken, "ARCHIVE_BROKEN"), (brokenResult.Status, brokenResult.ErrorCode));
+        var missing = Reader.Open(PathOf("missing.zip"), Ct);
+        Assert.Equal((ArchiveAnalysisStatus.Error, "FILE_NOT_FOUND"), (missing.Status, missing.ErrorCode));
+        Assert.All(new[] { text, secret, broken }, p => Assert.Null(Reader.Open(p, Ct).Archive));
+
+        // どの場合もファイルを手放しているので、すぐ削除できる
+        File.Delete(text);
+        File.Delete(secret);
+        File.Delete(broken);
+    }
+
+    [Fact]
     public void ReadEntry_指定したエントリの内容を返す()
     {
         var jpeg = TestImages.Jpeg(20, 10);

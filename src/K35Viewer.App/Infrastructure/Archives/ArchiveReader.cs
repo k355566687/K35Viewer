@@ -14,6 +14,12 @@ public interface IArchiveReader
     /// ZIP Streamの寿命に依存させないため、呼び出し側へはバイト列で渡す。
     /// </summary>
     byte[] ReadEntry(string archivePath, string entryName, long maxBytes, CancellationToken ct = default);
+
+    /// <summary>
+    /// ビューアで閲覧するためにアーカイブを開く。対応画像を自然順に並べ、開いたまま返す。
+    /// 画像がない、壊れている、暗号化されている等の場合は、Archive を持たない結果で返す(例外にしない)。
+    /// </summary>
+    ArchiveOpenResult Open(string archivePath, CancellationToken ct = default);
 }
 
 public sealed class ArchiveReader : IArchiveReader
@@ -81,6 +87,85 @@ public sealed class ArchiveReader : IArchiveReader
         }
     }
 
+    public ArchiveOpenResult Open(string archivePath, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+
+        FileStream? stream = null;
+        ZipArchive? zip = null;
+        var handedOver = false; // 開いたアーカイブを呼び出し側へ引き渡したら true(以降は呼び出し側が閉じる)
+        try
+        {
+            // 閲覧中に、他のプログラムがファイルを読み書き・削除できなくなる状態を避けるため、共有を許可して開く
+            stream = new FileStream(
+                archivePath,
+                FileMode.Open,
+                FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete,
+                bufferSize: 4096,
+                FileOptions.RandomAccess);
+            zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+
+            var images = new List<ZipArchiveEntry>();
+            foreach (var entry in zip.Entries)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (IsSupportedImage(entry))
+                {
+                    images.Add(entry);
+                }
+            }
+
+            if (images.Count == 0)
+            {
+                return new ArchiveOpenResult(ArchiveAnalysisStatus.Empty, null);
+            }
+
+            if (images.Exists(e => e.IsEncrypted))
+            {
+                return new ArchiveOpenResult(
+                    ArchiveAnalysisStatus.Unsupported, null, "ARCHIVE_ENCRYPTED", "暗号化されたアーカイブは扱えません");
+            }
+
+            var sorted = images
+                .Select(e => new ArchiveImageEntry(e.FullName, e.Length))
+                .OrderBy(e => e.FullName, NaturalStringComparer.Instance)
+                .ToList();
+
+            var opened = new OpenedZip(zip, sorted);
+            handedOver = true;
+            return new ArchiveOpenResult(ArchiveAnalysisStatus.Ready, opened);
+        }
+        catch (InvalidDataException ex)
+        {
+            return new ArchiveOpenResult(ArchiveAnalysisStatus.Broken, null, "ARCHIVE_BROKEN", ex.Message);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return new ArchiveOpenResult(ArchiveAnalysisStatus.Error, null, "FILE_NOT_FOUND", ex.Message);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            return new ArchiveOpenResult(ArchiveAnalysisStatus.Error, null, "FILE_NOT_FOUND", ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return new ArchiveOpenResult(ArchiveAnalysisStatus.Error, null, "ACCESS_DENIED", ex.Message);
+        }
+        catch (IOException ex)
+        {
+            return new ArchiveOpenResult(ArchiveAnalysisStatus.Error, null, "IO_ERROR", ex.Message);
+        }
+        finally
+        {
+            if (!handedOver)
+            {
+                zip?.Dispose(); // ストリームも一緒に閉じられる
+                stream?.Dispose(); // ZipArchive の生成に失敗した場合に備える(二重に閉じても問題ない)
+            }
+        }
+    }
+
     public byte[] ReadEntry(string archivePath, string entryName, long maxBytes, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
@@ -89,7 +174,12 @@ public sealed class ArchiveReader : IArchiveReader
         using var zip = ZipFile.OpenRead(archivePath);
         var entry = zip.GetEntry(entryName)
             ?? throw new FileNotFoundException($"アーカイブ内にエントリがありません: {entryName}");
+        return ReadEntryContent(entry, maxBytes, ct);
+    }
 
+    /// <summary>エントリの内容をメモリへ読み込む。宣言サイズと実際に読んだ量の両方で上限を守る。</summary>
+    internal static byte[] ReadEntryContent(ZipArchiveEntry entry, long maxBytes, CancellationToken ct)
+    {
         // 宣言サイズが大きすぎるものは、展開せずに拒否する(圧縮爆弾対策)
         if (entry.Length > maxBytes)
         {

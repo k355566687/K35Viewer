@@ -3,6 +3,7 @@ using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Thumbnails;
+using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Infrastructure.Logging;
 using K35Viewer.Services;
 using K35Viewer.ViewModels;
@@ -49,7 +50,10 @@ public partial class App : Application
         builder.Services.AddSingleton<ThumbnailService>();
         builder.Services.AddSingleton<ThumbnailImageLoader>(sp => new ThumbnailImageLoader(sp.GetRequiredService<ThumbnailCacheStore>()));
         builder.Services.AddSingleton<IDialogService, WpfDialogService>();
+        builder.Services.AddSingleton<ViewerService>();
+        builder.Services.AddSingleton<ViewerImageDecoder>();
         builder.Services.AddSingleton<LibraryViewModel>();
+        builder.Services.AddSingleton<ViewerViewModel>();
         builder.Services.AddSingleton<ToastHostViewModel>();
         builder.Services.AddSingleton<MainViewModel>();
         builder.Services.AddSingleton<MainWindow>();

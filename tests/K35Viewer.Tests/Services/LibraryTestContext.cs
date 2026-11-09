@@ -32,12 +32,40 @@ internal sealed class CountingArchiveReader(IArchiveReader inner) : IArchiveRead
 {
     private int _analyzeCalls;
     private int _readCalls;
+    private int _openCalls;
+    private int _openedReadCalls;
 
     public int AnalyzeCalls => Volatile.Read(ref _analyzeCalls);
 
     public int ReadCalls => Volatile.Read(ref _readCalls);
 
-    public int TotalCalls => AnalyzeCalls + ReadCalls;
+    /// <summary>ビューア用に開いた回数。</summary>
+    public int OpenCalls => Volatile.Read(ref _openCalls);
+
+    /// <summary>開いたままのアーカイブから、エントリを読み出した回数。</summary>
+    public int OpenedReadCalls => Volatile.Read(ref _openedReadCalls);
+
+    public int TotalCalls => AnalyzeCalls + ReadCalls + OpenCalls;
+
+    public ArchiveOpenResult Open(string archivePath, CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref _openCalls);
+        var result = inner.Open(archivePath, ct);
+        return result.Archive is null ? result : result with { Archive = new CountingOpenedArchive(result.Archive, this) };
+    }
+
+    private sealed class CountingOpenedArchive(IOpenedArchive inner, CountingArchiveReader owner) : IOpenedArchive
+    {
+        public IReadOnlyList<ArchiveImageEntry> Images => inner.Images;
+
+        public byte[] ReadEntry(string entryName, long maxBytes, CancellationToken ct = default)
+        {
+            Interlocked.Increment(ref owner._openedReadCalls);
+            return inner.ReadEntry(entryName, maxBytes, ct);
+        }
+
+        public void Dispose() => inner.Dispose();
+    }
 
     public ArchiveAnalysis Analyze(string archivePath, CancellationToken ct = default)
     {
@@ -83,6 +111,8 @@ internal sealed class LibraryTestContext : IDisposable
             _fileSystem, _libraries, ArchiveRepository, new ScanRepository(), history, _writer, Notifications,
             NullLogger<ScanService>.Instance);
         Thumbnails = CreateThumbnailService();
+        Viewer = new ViewerService(
+            Reader, ArchiveRepository, _writer, _fileSystem, Notifications, NullLogger<ViewerService>.Instance);
         ImageLoader = new ThumbnailImageLoader(Cache);
         _disposables.Add(ImageLoader);
     }
@@ -98,6 +128,8 @@ internal sealed class LibraryTestContext : IDisposable
     public CountingArchiveReader Reader { get; }
 
     public ThumbnailService Thumbnails { get; }
+
+    public ViewerService Viewer { get; }
 
     /// <summary>
     /// 新しいサムネイルサービスを作る(アプリの再起動に相当。同一セッション内で覚えている状態を持たない)。

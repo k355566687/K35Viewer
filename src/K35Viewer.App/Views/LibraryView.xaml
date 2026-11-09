@@ -8,8 +8,10 @@
         <DataTemplate x:Key="ThumbnailCell">
             <StackPanel Width="164"
                         Margin="6"
+                        Background="Transparent"
                         ToolTip="{Binding FileName}"
-                        AutomationProperties.Name="{Binding FileName}">
+                        AutomationProperties.Name="{Binding FileName}"
+                        MouseLeftButtonDown="OnThumbnailCellMouseLeftButtonDown">
                 <Border Width="164"
                         Height="220"
                         Background="#EEEEEE"
@@ -156,6 +158,8 @@
                           VirtualizingPanel.IsVirtualizing="True"
                           VirtualizingPanel.VirtualizationMode="Recycling"
                           ScrollViewer.CanContentScroll="True"
+                          MouseDoubleClick="OnArchiveListMouseDoubleClick"
+                          KeyDown="OnArchiveListKeyDown"
                           Visibility="{Binding IsDetailView, Converter={StaticResource BoolToVisibility}}">
                     <ListView.View>
                         <GridView>

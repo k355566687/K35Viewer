@@ -217,6 +217,56 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         return await command.ExecuteNonQueryAsync(ct) > 0;
     }
 
+    public async Task<ArchiveOpenInfo?> GetOpenInfoAsync(long id, CancellationToken ct)
+    {
+        await using var connection = await connectionFactory.OpenAsync(ct);
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            null,
+            """
+            SELECT a.id, f.full_path, a.file_name, a.availability_status, a.last_view_entry, a.last_view_index
+              FROM archives a
+              JOIN folders f ON a.folder_id = f.id
+             WHERE a.id = $id
+            """,
+            ("$id", id));
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct)
+            ? new ArchiveOpenInfo(
+                reader.GetInt64(0),
+                reader.GetString(1),
+                reader.GetString(2),
+                reader.GetString(3),
+                reader.GetNullableString(4),
+                reader.IsDBNull(5) ? null : (int)reader.GetInt64(5))
+            : null;
+    }
+
+    /// <summary>最後に閲覧した位置(画像エントリ名と、画像を自然順に並べたときの0始まりの位置)を記録する。</summary>
+    public async Task UpdateLastViewAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long id,
+        string entryName,
+        int index,
+        long now,
+        CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            UPDATE archives
+               SET last_view_entry = $entry, last_view_index = $index, last_viewed_at = $now, updated_at = $now
+             WHERE id = $id
+            """,
+            ("$id", id),
+            ("$entry", entryName),
+            ("$index", index),
+            ("$now", now));
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     /// <summary>LIKEのワイルドカード(% _)とエスケープ文字を、文字そのものとして扱えるようにする。</summary>
     internal static string EscapeLike(string term) =>
         term.Replace("\\", "\\\\", StringComparison.Ordinal)

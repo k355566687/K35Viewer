@@ -1,6 +1,4 @@
 using System.Collections.ObjectModel;
-using System.Windows;
-using System.Windows.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using K35Viewer.Services;
 
@@ -22,16 +20,21 @@ public sealed record ToastItem(NotificationLevel Level, string Message)
 public sealed class ToastHostViewModel : ObservableObject, IDisposable
 {
     private const int MaxVisible = 5;
-    private static readonly TimeSpan Lifetime = TimeSpan.FromSeconds(5);
+    private static readonly TimeSpan DefaultLifetime = TimeSpan.FromSeconds(5);
 
     private readonly NotificationService _notifications;
-    private readonly Dispatcher _dispatcher;
+    private readonly SynchronizationContext? _context;
+    private readonly TimeSpan _lifetime;
     private readonly CancellationTokenSource _cts = new();
+    private readonly object _sync = new();
 
-    public ToastHostViewModel(NotificationService notifications)
+    /// <param name="notifications">通知の発行元。</param>
+    /// <param name="lifetime">通知を表示しておく時間。省略時は5秒。</param>
+    public ToastHostViewModel(NotificationService notifications, TimeSpan? lifetime = null)
     {
         _notifications = notifications;
-        _dispatcher = Application.Current.Dispatcher;
+        _lifetime = lifetime ?? DefaultLifetime;
+        _context = SynchronizationContext.Current; // 作成したスレッド（UIスレッド）へ表示の更新を戻す
         _notifications.Notified += OnNotified;
     }
 
@@ -45,16 +48,28 @@ public sealed class ToastHostViewModel : ObservableObject, IDisposable
     }
 
     // 通知はバックグラウンドスレッドから発行されるため、UIスレッドへ切り替えて追加する
-    private void OnNotified(object? sender, Notification notification) =>
-        _ = _dispatcher.InvokeAsync(() => Add(notification));
+    private void OnNotified(object? sender, Notification notification)
+    {
+        if (_context is null)
+        {
+            Add(notification);
+        }
+        else
+        {
+            _context.Post(static state => ((Action)state!)(), () => Add(notification));
+        }
+    }
 
     private void Add(Notification notification)
     {
         var item = new ToastItem(notification.Level, notification.Message);
-        Items.Add(item);
-        while (Items.Count > MaxVisible)
+        lock (_sync)
         {
-            Items.RemoveAt(0);
+            Items.Add(item);
+            while (Items.Count > MaxVisible)
+            {
+                Items.RemoveAt(0);
+            }
         }
 
         _ = RemoveLaterAsync(item);
@@ -64,8 +79,13 @@ public sealed class ToastHostViewModel : ObservableObject, IDisposable
     {
         try
         {
-            await Task.Delay(Lifetime, _cts.Token);
-            Items.Remove(item);
+            await Task.Delay(_lifetime, _cts.Token);
+
+            // 画面では常にUIスレッドで動くが、UIのコンテキストがない環境でも、コレクションを壊さないよう排他する
+            lock (_sync)
+            {
+                Items.Remove(item);
+            }
         }
         catch (OperationCanceledException)
         {
