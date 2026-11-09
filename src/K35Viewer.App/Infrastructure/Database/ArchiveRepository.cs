@@ -82,9 +82,12 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         }
 
         var countSql = $"{cte} SELECT COUNT(*) FROM archives a WHERE {where}";
+        // サムネイルは READY のほか、再生成待ち(STALE)の間も古い画像を表示し続ける
         var listSql =
-            $"{cte} SELECT a.id, a.file_name, f.full_path, a.file_size, a.last_write_time, a.image_count, a.analysis_status " +
-            $"FROM archives a JOIN folders f ON a.folder_id = f.id WHERE {where} " +
+            $"{cte} SELECT a.id, a.file_name, f.full_path, a.file_size, a.last_write_time, a.image_count, a.analysis_status, " +
+            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status " +
+            "FROM archives a JOIN folders f ON a.folder_id = f.id " +
+            $"LEFT JOIN thumbnail_cache t ON t.archive_id = a.id WHERE {where} " +
             $"ORDER BY {orderBy}, a.id{paging}";
 
         await using var connection = await connectionFactory.OpenAsync(ct);
@@ -109,11 +112,109 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
                     reader.GetInt64(3),
                     reader.GetInt64(4),
                     reader.IsDBNull(5) ? null : (int)reader.GetInt64(5),
-                    reader.GetString(6)));
+                    reader.GetString(6),
+                    reader.GetNullableString(7),
+                    reader.GetNullableString(8)));
             }
         }
 
         return new PagedResult<ArchiveSummary>(items, total);
+    }
+
+    /// <summary>
+    /// 解析またはサムネイル生成が必要なアーカイブのID。次のいずれか(有効なアーカイブのみ)。
+    /// ・未解析(PENDING)、または前回ファイルを読めなかった(ERROR。呼び出し側が同一セッションでの再試行を制御する)
+    /// ・解析済みで、サムネイルがない / 生成待ち(PENDING)/ 再生成待ち(STALE)/ 生成後にアーカイブが変更された
+    /// 生成に失敗(FAILED)したものは、アーカイブが変更されるまで再試行しない。
+    /// </summary>
+    public async Task<IReadOnlyList<long>> GetPendingProcessingIdsAsync(CancellationToken ct)
+    {
+        await using var connection = await connectionFactory.OpenAsync(ct);
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            null,
+            """
+            SELECT a.id
+              FROM archives a
+              LEFT JOIN thumbnail_cache t ON t.archive_id = a.id
+             WHERE a.availability_status = 'AVAILABLE'
+               AND (a.analysis_status IN ('PENDING', 'ERROR')
+                    OR (a.analysis_status = 'READY'
+                        AND (t.archive_id IS NULL
+                             OR t.status IN ('PENDING', 'STALE')
+                             OR t.source_archive_size IS NOT a.file_size
+                             OR t.source_last_write_time IS NOT a.last_write_time)))
+             ORDER BY a.id
+            """);
+        await using var reader = await command.ExecuteReaderAsync(ct);
+
+        var result = new List<long>();
+        while (await reader.ReadAsync(ct))
+        {
+            result.Add(reader.GetInt64(0));
+        }
+
+        return result;
+    }
+
+    public async Task<ArchiveProcessingTarget?> GetProcessingTargetAsync(long id, CancellationToken ct)
+    {
+        await using var connection = await connectionFactory.OpenAsync(ct);
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            null,
+            """
+            SELECT a.id, f.full_path, a.file_name, a.file_size, a.last_write_time
+              FROM archives a
+              JOIN folders f ON a.folder_id = f.id
+             WHERE a.id = $id AND a.availability_status = 'AVAILABLE'
+            """,
+            ("$id", id));
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        return await reader.ReadAsync(ct)
+            ? new ArchiveProcessingTarget(
+                reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3), reader.GetInt64(4))
+            : null;
+    }
+
+    /// <summary>
+    /// 解析結果を反映する。解析中にアーカイブが変更された場合(スキャンがサイズ・更新日時を更新した場合)に
+    /// 古い内容の解析結果で上書きしないよう、解析時点のサイズ・更新日時が一致する場合のみ更新する。
+    /// </summary>
+    public async Task<bool> UpdateAnalysisAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        ArchiveProcessingTarget target,
+        ArchiveAnalysisStatus status,
+        int? imageCount,
+        string? firstImageEntry,
+        string? errorCode,
+        string? errorMessage,
+        long now,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(target);
+
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            UPDATE archives
+               SET analysis_status = $status, image_count = $count, first_image_entry = $entry,
+                   error_code = $code, error_message = $message, updated_at = $now
+             WHERE id = $id AND file_size = $size AND last_write_time = $mtime
+               AND availability_status = 'AVAILABLE'
+            """,
+            ("$id", target.Id),
+            ("$size", target.FileSize),
+            ("$mtime", target.LastWriteTime),
+            ("$status", status.ToDbValue()),
+            ("$count", imageCount),
+            ("$entry", firstImageEntry),
+            ("$code", errorCode),
+            ("$message", errorMessage),
+            ("$now", now));
+        return await command.ExecuteNonQueryAsync(ct) > 0;
     }
 
     /// <summary>LIKEのワイルドカード(% _)とエスケープ文字を、文字そのものとして扱えるようにする。</summary>

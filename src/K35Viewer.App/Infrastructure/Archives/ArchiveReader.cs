@@ -1,0 +1,136 @@
+using System.IO.Compression;
+using K35Viewer.Domain;
+
+namespace K35Viewer.Infrastructure.Archives;
+
+/// <summary>ZIP / CBZ の読み取り境界。テストで差し替えられるよう、インターフェースにしている。</summary>
+public interface IArchiveReader
+{
+    /// <summary>アーカイブを開き、対応画像の数と表紙候補を返す。読めない場合も例外ではなく結果の状態で返す。</summary>
+    ArchiveAnalysis Analyze(string archivePath, CancellationToken ct = default);
+
+    /// <summary>
+    /// アーカイブ内の1エントリを全部メモリへ読み込む。maxBytes を超える場合は例外を投げる。
+    /// ZIP Streamの寿命に依存させないため、呼び出し側へはバイト列で渡す。
+    /// </summary>
+    byte[] ReadEntry(string archivePath, string entryName, long maxBytes, CancellationToken ct = default);
+}
+
+public sealed class ArchiveReader : IArchiveReader
+{
+    /// <summary>表紙候補として返す最大数。先頭が壊れている場合に、次の画像で代用するための数。</summary>
+    public const int MaxCoverCandidates = 3;
+
+    private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png"];
+
+    public ArchiveAnalysis Analyze(string archivePath, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+
+        try
+        {
+            using var zip = ZipFile.OpenRead(archivePath);
+
+            var images = new List<ZipArchiveEntry>();
+            foreach (var entry in zip.Entries)
+            {
+                ct.ThrowIfCancellationRequested();
+                if (IsSupportedImage(entry))
+                {
+                    images.Add(entry);
+                }
+            }
+
+            if (images.Count == 0)
+            {
+                return new ArchiveAnalysis(ArchiveAnalysisStatus.Empty, 0, []);
+            }
+
+            if (images.Exists(e => e.IsEncrypted))
+            {
+                return new ArchiveAnalysis(
+                    ArchiveAnalysisStatus.Unsupported, 0, [], "ARCHIVE_ENCRYPTED", "暗号化されたアーカイブは扱えません");
+            }
+
+            var candidates = images
+                .Select(e => e.FullName)
+                .Order(NaturalStringComparer.Instance)
+                .Take(MaxCoverCandidates)
+                .ToList();
+            return new ArchiveAnalysis(ArchiveAnalysisStatus.Ready, images.Count, candidates);
+        }
+        catch (InvalidDataException ex)
+        {
+            return new ArchiveAnalysis(ArchiveAnalysisStatus.Broken, 0, [], "ARCHIVE_BROKEN", ex.Message);
+        }
+        catch (FileNotFoundException ex)
+        {
+            return new ArchiveAnalysis(ArchiveAnalysisStatus.Error, 0, [], "FILE_NOT_FOUND", ex.Message);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            return new ArchiveAnalysis(ArchiveAnalysisStatus.Error, 0, [], "FILE_NOT_FOUND", ex.Message);
+        }
+        catch (UnauthorizedAccessException ex)
+        {
+            return new ArchiveAnalysis(ArchiveAnalysisStatus.Error, 0, [], "ACCESS_DENIED", ex.Message);
+        }
+        catch (IOException ex)
+        {
+            return new ArchiveAnalysis(ArchiveAnalysisStatus.Error, 0, [], "IO_ERROR", ex.Message);
+        }
+    }
+
+    public byte[] ReadEntry(string archivePath, string entryName, long maxBytes, CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+        ArgumentException.ThrowIfNullOrWhiteSpace(entryName);
+
+        using var zip = ZipFile.OpenRead(archivePath);
+        var entry = zip.GetEntry(entryName)
+            ?? throw new FileNotFoundException($"アーカイブ内にエントリがありません: {entryName}");
+
+        // 宣言サイズが大きすぎるものは、展開せずに拒否する(圧縮爆弾対策)
+        if (entry.Length > maxBytes)
+        {
+            throw new InvalidDataException($"エントリが大きすぎます: {entry.Length} バイト");
+        }
+
+        using var source = entry.Open();
+        using var buffer = new MemoryStream((int)Math.Min(entry.Length, int.MaxValue));
+        var chunk = new byte[81920];
+        int read;
+        while ((read = source.Read(chunk, 0, chunk.Length)) > 0)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            // 宣言サイズが偽られていても、実際に読んだ量で上限を守る
+            if (buffer.Length + read > maxBytes)
+            {
+                throw new InvalidDataException("エントリが宣言サイズより大きく、上限を超えました");
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        return buffer.ToArray();
+    }
+
+    /// <summary>JPEG / PNG のファイルエントリか。フォルダ、macOSのメタデータ(__MACOSX、._*)は除く。</summary>
+    private static bool IsSupportedImage(ZipArchiveEntry entry)
+    {
+        if (string.IsNullOrEmpty(entry.Name))
+        {
+            return false; // フォルダ
+        }
+
+        if (entry.FullName.StartsWith("__MACOSX/", StringComparison.OrdinalIgnoreCase)
+            || entry.Name.StartsWith("._", StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        var extension = Path.GetExtension(entry.Name);
+        return SupportedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
+    }
+}

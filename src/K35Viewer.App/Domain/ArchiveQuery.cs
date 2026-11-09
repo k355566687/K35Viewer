@@ -31,7 +31,23 @@ public sealed record ArchiveSummary(
     long FileSize,
     long LastWriteTime,
     int? ImageCount,
-    string AnalysisStatus)
+    string AnalysisStatus,
+    string? ThumbnailPath = null,
+    string? ThumbnailStatus = null)
+{
+    public string FullPath => Path.Combine(FolderPath, FileName);
+}
+
+/// <summary>
+/// 解析・サムネイル生成の対象アーカイブ。FileSize / LastWriteTime はDBに記録されている値で、
+/// 処理前にファイルの現在の状態と照合し、外部で変更されていれば処理しない。
+/// </summary>
+public sealed record ArchiveProcessingTarget(
+    long Id,
+    string FolderPath,
+    string FileName,
+    long FileSize,
+    long LastWriteTime)
 {
     public string FullPath => Path.Combine(FolderPath, FileName);
 }

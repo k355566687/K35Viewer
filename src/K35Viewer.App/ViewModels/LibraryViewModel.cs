@@ -2,6 +2,7 @@ using System.Globalization;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Services;
 using Microsoft.Extensions.Logging;
 
@@ -11,16 +12,21 @@ namespace K35Viewer.ViewModels;
 public sealed record SortOption(ArchiveSortKey Key, string Label);
 
 /// <summary>
-/// ライブラリ画面のViewModel(SCR-01)。フォルダツリー、アーカイブ一覧、検索・ソート、
-/// 管理フォルダの追加、再スキャン、起動時の更新チェックを扱う。
-/// 一覧はSQLiteの検索結果だけで表示し、ZIP本体は開かない。
+/// ライブラリ画面のViewModel(SCR-01)。フォルダツリー、アーカイブ一覧(詳細 / サムネイル表示)、検索・ソート、
+/// 管理フォルダの追加、再スキャン、起動時の更新チェック、サムネイルの生成を扱う。
+/// 一覧はSQLiteの検索結果とサムネイルキャッシュだけで表示し、ZIP本体は開かない。
 /// </summary>
 public sealed partial class LibraryViewModel(
     LibraryService library,
     ScanService scan,
+    ThumbnailService thumbnails,
+    ThumbnailImageLoader imageLoader,
     IDialogService dialogs,
     ILogger<LibraryViewModel> logger) : ObservableObject, IDisposable
 {
+    /// <summary>サムネイル表示の1枚の幅(余白を含む)。この幅で1行に並べる枚数を決める。</summary>
+    public const double ThumbnailCellWidth = 176;
+
     private static readonly TimeSpan SearchDebounce = TimeSpan.FromMilliseconds(250);
 
     private static readonly IReadOnlyList<SortOption> AllSortOptions =
@@ -32,10 +38,15 @@ public sealed partial class LibraryViewModel(
     ];
 
     private readonly CancellationTokenSource _cts = new();
+    private readonly SynchronizationContext? _uiContext = SynchronizationContext.Current;
     private CancellationTokenSource? _refreshCts;
+    // 取得のたびに新しい辞書を作って差し替える(作成後は変更しない)。作成スレッドからの参照と競合しない
+    private Dictionary<long, ArchiveListItem> _itemsById = [];
     private int _runningScans;
     private bool _initialized;
     private bool _hasLoadedArchives;
+    private bool _thumbnailLoopRunning;
+    private bool _thumbnailRerun;
     private long? _selectedFolderId;
 
     public IReadOnlyList<SortOption> SortOptions => AllSortOptions;
@@ -44,9 +55,13 @@ public sealed partial class LibraryViewModel(
     [ObservableProperty]
     private IReadOnlyList<FolderTreeItem> _folderRoots = [];
 
-    /// <summary>中央の一覧。1万件でも項目ごとの変更通知を出さないよう、検索のたびに丸ごと差し替える。</summary>
+    /// <summary>中央の一覧(詳細表示)。1万件でも項目ごとの変更通知を出さないよう、検索のたびに丸ごと差し替える。</summary>
     [ObservableProperty]
     private IReadOnlyList<ArchiveListItem> _archives = [];
+
+    /// <summary>サムネイル表示用に、一覧を1行ぶんずつにまとめたもの。サムネイル表示のときだけ作る。</summary>
+    [ObservableProperty]
+    private IReadOnlyList<ThumbnailRow> _thumbnailRows = [];
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -56,6 +71,15 @@ public sealed partial class LibraryViewModel(
 
     [ObservableProperty]
     private bool _isDescending;
+
+    /// <summary>true ならサムネイル表示、false なら詳細表示。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsDetailView))]
+    private bool _isThumbnailView;
+
+    /// <summary>サムネイル表示で1行に並べる枚数。表示領域の幅から決まる。</summary>
+    [ObservableProperty]
+    private int _columnCount = 6;
 
     [ObservableProperty]
     private int _totalCount;
@@ -75,8 +99,24 @@ public sealed partial class LibraryViewModel(
     [NotifyCanExecuteChangedFor(nameof(RescanCommand))]
     private bool _isScanning;
 
+    /// <summary>サムネイルを作成中かどうか。</summary>
+    [ObservableProperty]
+    private bool _isGeneratingThumbnails;
+
+    /// <summary>サムネイル作成の進捗表示。作成中でなければ空文字。</summary>
+    [ObservableProperty]
+    private string _thumbnailProgressText = string.Empty;
+
+    /// <summary>詳細表示かどうか(ラジオボタンの双方向バインド用)。</summary>
+    public bool IsDetailView
+    {
+        get => !IsThumbnailView;
+        set => IsThumbnailView = !value;
+    }
+
     /// <summary>
-    /// 画面表示後に1回だけ呼ぶ。一覧を読み込み、登録フォルダがあれば更新チェックをバックグラウンドで開始する(UC-17)。
+    /// 画面表示後に1回だけ呼ぶ。一覧を読み込み、登録フォルダがあれば更新チェック(UC-17)と
+    /// 未作成のサムネイルの作成をバックグラウンドで開始する。
     /// </summary>
     public async Task InitializeAsync()
     {
@@ -86,12 +126,14 @@ public sealed partial class LibraryViewModel(
         }
 
         _initialized = true;
+        thumbnails.ArchiveProcessed += OnArchiveProcessed;
         await ReloadAsync();
 
         if (HasFolders)
         {
-            // 更新チェックの完了を待たない。チェック中もライブラリを閲覧・検索できる
+            // 完了を待たない。更新チェック中も、一覧の閲覧・検索ができる
             _ = RunScanAsync(ct => scan.ScanAllAsync(ScanType.Startup, ct));
+            StartThumbnailProcessing();
         }
     }
 
@@ -125,6 +167,12 @@ public sealed partial class LibraryViewModel(
 
         _selectedFolderId = item.Id;
         _ = RefreshArchivesAsync(null);
+    }
+
+    /// <summary>サムネイル表示の領域の幅が変わったときにViewから呼ばれる。1行に並べる枚数を決め直す。</summary>
+    public void UpdateViewportWidth(double width)
+    {
+        ColumnCount = Math.Max(1, (int)(width / ThumbnailCellWidth));
     }
 
     [RelayCommand]
@@ -177,6 +225,7 @@ public sealed partial class LibraryViewModel(
 
     public void Dispose()
     {
+        thumbnails.ArchiveProcessed -= OnArchiveProcessed;
         _cts.Cancel();
         _refreshCts?.Cancel();
         _refreshCts?.Dispose();
@@ -188,6 +237,36 @@ public sealed partial class LibraryViewModel(
     partial void OnSelectedSortOptionChanged(SortOption value) => _ = RefreshArchivesAsync(null);
 
     partial void OnIsDescendingChanged(bool value) => _ = RefreshArchivesAsync(null);
+
+    partial void OnArchivesChanged(IReadOnlyList<ArchiveListItem> value) => RebuildThumbnailRows();
+
+    partial void OnColumnCountChanged(int value) => RebuildThumbnailRows();
+
+    partial void OnIsThumbnailViewChanged(bool value) => RebuildThumbnailRows();
+
+    /// <summary>
+    /// サムネイル表示のときだけ、一覧を1行ずつにまとめる。詳細表示に戻したときは破棄する
+    /// (使っていない間は、行のオブジェクトを保持しない)。
+    /// </summary>
+    private void RebuildThumbnailRows()
+    {
+        if (!IsThumbnailView)
+        {
+            ThumbnailRows = [];
+            return;
+        }
+
+        var columns = Math.Max(1, ColumnCount);
+        var source = Archives;
+        var rows = new List<ThumbnailRow>((source.Count + columns - 1) / columns);
+        for (var start = 0; start < source.Count; start += columns)
+        {
+            var count = Math.Min(columns, source.Count - start);
+            rows.Add(new ThumbnailRow(new ArraySegmentList<ArchiveListItem>(source, start, count)));
+        }
+
+        ThumbnailRows = rows;
+    }
 
     private async Task LoadTreeAsync(CancellationToken ct)
     {
@@ -266,7 +345,9 @@ public sealed partial class LibraryViewModel(
             var result = await library.QueryArchivesAsync(query, cts.Token);
             cts.Token.ThrowIfCancellationRequested();
 
-            Archives = result.Items.Select(item => new ArchiveListItem(item)).ToList();
+            var items = result.Items.Select(item => new ArchiveListItem(item, imageLoader)).ToList();
+            _itemsById = items.ToDictionary(item => item.Id);
+            Archives = items;
             TotalCount = result.TotalCount;
             CountText = string.Create(CultureInfo.CurrentCulture, $"{result.TotalCount:N0} 件");
             _hasLoadedArchives = true;
@@ -321,6 +402,80 @@ public sealed partial class LibraryViewModel(
         }
 
         await ReloadAsync();
+
+        // 新規・変更のアーカイブのサムネイルを作る
+        StartThumbnailProcessing();
+    }
+
+    /// <summary>
+    /// サムネイルの作成を開始する。作成中に再度呼ばれた場合は、終わったあとにもう一度確認する
+    /// (作成中に新しく見つかったアーカイブを取りこぼさないため)。
+    /// </summary>
+    private void StartThumbnailProcessing()
+    {
+        if (_thumbnailLoopRunning)
+        {
+            _thumbnailRerun = true;
+            return;
+        }
+
+        _ = RunThumbnailLoopAsync();
+    }
+
+    private async Task RunThumbnailLoopAsync()
+    {
+        _thumbnailLoopRunning = true;
+        IsGeneratingThumbnails = true;
+        try
+        {
+            // Progress<T> は作成した時点(UIスレッド)のコンテキストへ報告を返す
+            var progress = new Progress<ThumbnailProgress>(p =>
+                ThumbnailProgressText = p.Total == 0
+                    ? string.Empty
+                    : string.Create(CultureInfo.CurrentCulture, $"サムネイルを作成中… {p.Completed:N0} / {p.Total:N0}"));
+
+            do
+            {
+                _thumbnailRerun = false;
+                await Task.Run(() => thumbnails.ProcessPendingAsync(progress, _cts.Token), _cts.Token);
+            }
+            while (_thumbnailRerun && !_cts.IsCancellationRequested);
+        }
+        catch (OperationCanceledException)
+        {
+            // アプリ終了中
+        }
+        catch (Exception ex)
+        {
+            LogThumbnailsFailed(logger, ex);
+        }
+        finally
+        {
+            IsGeneratingThumbnails = false;
+            ThumbnailProgressText = string.Empty;
+            _thumbnailLoopRunning = false;
+        }
+    }
+
+    // 作成スレッドから呼ばれるため、UIスレッドへ切り替えて、表示中の該当行だけを更新する
+    private void OnArchiveProcessed(object? sender, ArchiveProcessed update)
+    {
+        void Apply()
+        {
+            if (_itemsById.TryGetValue(update.ArchiveId, out var item))
+            {
+                item.Apply(update);
+            }
+        }
+
+        if (_uiContext is null)
+        {
+            Apply();
+        }
+        else
+        {
+            _uiContext.Post(static state => ((Action)state!)(), (Action)Apply);
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Error, Message = "フォルダツリーの読み込みに失敗しました。")]
@@ -334,4 +489,27 @@ public sealed partial class LibraryViewModel(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "スキャンに失敗しました。")]
     private static partial void LogScanFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "サムネイルの作成に失敗しました。")]
+    private static partial void LogThumbnailsFailed(ILogger logger, Exception exception);
+}
+
+/// <summary>元のリストの一部を、コピーせずに <see cref="IReadOnlyList{T}"/> として見せる。</summary>
+internal sealed class ArraySegmentList<T>(IReadOnlyList<T> source, int start, int count) : IReadOnlyList<T>
+{
+    public int Count => count;
+
+    public T this[int index] => index >= 0 && index < count
+        ? source[start + index]
+        : throw new ArgumentOutOfRangeException(nameof(index));
+
+    public IEnumerator<T> GetEnumerator()
+    {
+        for (var i = 0; i < count; i++)
+        {
+            yield return source[start + i];
+        }
+    }
+
+    System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
 }

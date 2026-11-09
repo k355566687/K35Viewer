@@ -310,13 +310,11 @@ public class ScanServiceTests
     {
         using var ctx = new LibraryTestContext();
         await ctx.InitializeAsync();
-        for (var folder = 0; folder < 100; folder++)
+        // ファイル作成のI/Oが支配的なため、並列で作る
+        Parallel.For(0, 10_000, new ParallelOptions { CancellationToken = Ct }, index =>
         {
-            for (var file = 0; file < 100; file++)
-            {
-                ctx.CreateFile(Path.Combine($"f{folder:D3}", $"book{file:D3}.zip"), size: 1);
-            }
-        }
+            ctx.CreateFile(Path.Combine($"f{index / 100:D3}", $"book{index % 100:D3}.zip"), size: 1);
+        });
 
         var id = await AddAndGetIdAsync(ctx);
 

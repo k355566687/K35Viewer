@@ -1,5 +1,8 @@
+using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
+using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Services;
 using K35Viewer.Tests.Infrastructure;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -24,30 +27,97 @@ internal sealed class FakeNotificationService : INotificationService
 /// ライブラリ・スキャンのテスト用一式。一時DBと、実ファイルを置く一時ワークスペースを持つ。
 /// 実ユーザーのフォルダには一切触れない。
 /// </summary>
+/// <summary>ZIPを開いた回数を数える。一覧表示でZIPを開いていないことの確認に使う。</summary>
+internal sealed class CountingArchiveReader(IArchiveReader inner) : IArchiveReader
+{
+    private int _analyzeCalls;
+    private int _readCalls;
+
+    public int AnalyzeCalls => Volatile.Read(ref _analyzeCalls);
+
+    public int ReadCalls => Volatile.Read(ref _readCalls);
+
+    public int TotalCalls => AnalyzeCalls + ReadCalls;
+
+    public ArchiveAnalysis Analyze(string archivePath, CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref _analyzeCalls);
+        return inner.Analyze(archivePath, ct);
+    }
+
+    public byte[] ReadEntry(string archivePath, string entryName, long maxBytes, CancellationToken ct = default)
+    {
+        Interlocked.Increment(ref _readCalls);
+        return inner.ReadEntry(archivePath, entryName, maxBytes, ct);
+    }
+}
+
 internal sealed class LibraryTestContext : IDisposable
 {
     private readonly TempDatabase _db = new();
     private readonly DatabaseWriter _writer;
+    private readonly LibraryRepository _libraries;
+    private readonly FileSystemService _fileSystem = new();
+    private readonly ThumbnailRepository _thumbnailRepository;
+    private readonly List<IDisposable> _disposables = [];
 
     public LibraryTestContext()
     {
-        Workspace = Path.Combine(Path.GetTempPath(), "K35ViewerTests", "ws-" + Guid.NewGuid().ToString("N"));
+        var root = Path.Combine(Path.GetTempPath(), "K35ViewerTests");
+        var id = Guid.NewGuid().ToString("N");
+        Workspace = Path.Combine(root, "ws-" + id);
+        CacheDirectory = Path.Combine(root, "thumbs-" + id);
         Directory.CreateDirectory(Workspace);
 
         _writer = new DatabaseWriter(_db.Factory);
-        var libraries = new LibraryRepository(_db.Factory);
+        _libraries = new LibraryRepository(_db.Factory);
         var history = new HistoryRepository();
-        var fileSystem = new FileSystemService();
         ArchiveRepository = new ArchiveRepository(_db.Factory);
+        _thumbnailRepository = new ThumbnailRepository(_db.Factory);
+        Cache = new ThumbnailCacheStore(CacheDirectory);
+        Reader = new CountingArchiveReader(new ArchiveReader());
 
         Library = new LibraryService(
-            libraries, ArchiveRepository, history, _writer, fileSystem, Notifications, NullLogger<LibraryService>.Instance);
+            _libraries, ArchiveRepository, history, _writer, _fileSystem, Notifications, NullLogger<LibraryService>.Instance);
         Scan = new ScanService(
-            fileSystem, libraries, ArchiveRepository, new ScanRepository(), history, _writer, Notifications,
+            _fileSystem, _libraries, ArchiveRepository, new ScanRepository(), history, _writer, Notifications,
             NullLogger<ScanService>.Instance);
+        Thumbnails = CreateThumbnailService();
+        ImageLoader = new ThumbnailImageLoader(Cache);
+        _disposables.Add(ImageLoader);
     }
 
+    public ThumbnailImageLoader ImageLoader { get; }
+
     public string Workspace { get; }
+
+    public string CacheDirectory { get; }
+
+    public ThumbnailCacheStore Cache { get; }
+
+    public CountingArchiveReader Reader { get; }
+
+    public ThumbnailService Thumbnails { get; }
+
+    /// <summary>
+    /// 新しいサムネイルサービスを作る(アプリの再起動に相当。同一セッション内で覚えている状態を持たない)。
+    /// </summary>
+    public ThumbnailService CreateThumbnailService() =>
+        new(Reader, new ThumbnailGenerator(), Cache, _fileSystem, ArchiveRepository, _thumbnailRepository, _writer,
+            NullLogger<ThumbnailService>.Instance);
+
+    /// <summary>画像入りのZIPをワークスペースに作る。</summary>
+    public string CreateZip(string relative, params (string Name, byte[] Data)[] entries) =>
+        TestZips.Create(PathOf(relative), entries);
+
+    /// <summary>管理フォルダ(ワークスペース)を登録してスキャンする。登録したID を返す。</summary>
+    public async Task<long> RegisterAndScanAsync(string? relative = null)
+    {
+        var token = TestContext.Current.CancellationToken;
+        var result = await Library.AddFolderAsync(relative is null ? Workspace : PathOf(relative), true, token);
+        await Scan.ScanAsync(result.LibraryFolderId!.Value, ScanType.Initial, token);
+        return result.LibraryFolderId.Value;
+    }
 
     public FakeNotificationService Notifications { get; } = new();
 
@@ -87,12 +157,20 @@ internal sealed class LibraryTestContext : IDisposable
 
     public void Dispose()
     {
+        foreach (var disposable in _disposables)
+        {
+            disposable.Dispose();
+        }
+
         Scan.Dispose();
         _writer.Dispose();
         _db.Dispose();
-        if (Directory.Exists(Workspace))
+        foreach (var directory in new[] { Workspace, CacheDirectory })
         {
-            Directory.Delete(Workspace, recursive: true);
+            if (Directory.Exists(directory))
+            {
+                Directory.Delete(directory, recursive: true);
+            }
         }
     }
 }

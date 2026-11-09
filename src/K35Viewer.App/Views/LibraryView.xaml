@@ -3,6 +3,51 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <UserControl.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
+
+        <!-- サムネイル表示の1枚。画像は行が画面に出たときに初めて読み込まれる -->
+        <DataTemplate x:Key="ThumbnailCell">
+            <StackPanel Width="164"
+                        Margin="6"
+                        ToolTip="{Binding FileName}"
+                        AutomationProperties.Name="{Binding FileName}">
+                <Border Width="164"
+                        Height="220"
+                        Background="#EEEEEE"
+                        BorderBrush="#CCCCCC"
+                        BorderThickness="1">
+                    <Grid>
+                        <TextBlock Text="{Binding PlaceholderText}"
+                                   HorizontalAlignment="Center"
+                                   VerticalAlignment="Center"
+                                   TextAlignment="Center"
+                                   Foreground="#555555" />
+                        <Image Source="{Binding Thumbnail}"
+                               Stretch="Uniform"
+                               RenderOptions.BitmapScalingMode="HighQuality" />
+                    </Grid>
+                </Border>
+                <TextBlock Text="{Binding FileName}"
+                           TextTrimming="CharacterEllipsis"
+                           Margin="0,4,0,0" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="画像" Foreground="#555555" />
+                    <TextBlock Text="{Binding ImageCountText}" Foreground="#555555" Margin="4,0,0,0" />
+                </StackPanel>
+            </StackPanel>
+        </DataTemplate>
+
+        <!-- サムネイル表示の1行分。選択やフォーカスの枠は付けない -->
+        <DataTemplate x:Key="ThumbnailRowTemplate">
+            <ItemsControl ItemsSource="{Binding Items}"
+                          ItemTemplate="{StaticResource ThumbnailCell}"
+                          Focusable="False">
+                <ItemsControl.ItemsPanel>
+                    <ItemsPanelTemplate>
+                        <StackPanel Orientation="Horizontal" />
+                    </ItemsPanelTemplate>
+                </ItemsControl.ItemsPanel>
+            </ItemsControl>
+        </DataTemplate>
     </UserControl.Resources>
     <Grid>
         <Grid.ColumnDefinitions>
@@ -51,9 +96,9 @@
 
         <!-- 中央: 検索・並べ替え・一覧 -->
         <DockPanel Grid.Column="2" Margin="12">
-            <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
+            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                 <TextBlock Text="検索" VerticalAlignment="Center" Margin="0,0,6,0" />
-                <TextBox Width="260"
+                <TextBox Width="240"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                          VerticalContentAlignment="Center"
                          Padding="4,3"
@@ -70,6 +115,18 @@
                           VerticalAlignment="Center"
                           Margin="10,0,0,0"
                           AutomationProperties.Name="降順で並べ替え" />
+                <TextBlock Text="表示" VerticalAlignment="Center" Margin="16,0,6,0" />
+                <RadioButton Content="詳細"
+                             GroupName="ViewMode"
+                             IsChecked="{Binding IsDetailView}"
+                             VerticalAlignment="Center"
+                             AutomationProperties.Name="詳細表示" />
+                <RadioButton Content="サムネイル"
+                             GroupName="ViewMode"
+                             IsChecked="{Binding IsThumbnailView}"
+                             VerticalAlignment="Center"
+                             Margin="10,0,0,0"
+                             AutomationProperties.Name="サムネイル表示" />
                 <Button Content="再スキャン"
                         Command="{Binding RescanCommand}"
                         Padding="12,3"
@@ -79,21 +136,27 @@
                            Margin="12,0,0,0"
                            VerticalAlignment="Center"
                            Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
-            </StackPanel>
+            </WrapPanel>
 
-            <TextBlock DockPanel.Dock="Bottom"
-                       Text="{Binding CountText}"
-                       Margin="0,6,0,0"
-                       Foreground="#444444"
-                       AutomationProperties.Name="表示件数" />
+            <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0" LastChildFill="False">
+                <TextBlock DockPanel.Dock="Left"
+                           Text="{Binding CountText}"
+                           Foreground="#444444"
+                           AutomationProperties.Name="表示件数" />
+                <TextBlock DockPanel.Dock="Right"
+                           Text="{Binding ThumbnailProgressText}"
+                           Foreground="#444444"
+                           AutomationProperties.Name="サムネイル作成の進捗" />
+            </DockPanel>
 
             <Grid>
-                <!-- ListViewはScrollViewerやStackPanelの中に置かない(置くと仮想化が無効になる) -->
+                <!-- ListView / ListBoxはScrollViewerやStackPanelの中に置かない(置くと仮想化が無効になる) -->
                 <ListView ItemsSource="{Binding Archives}"
                           AutomationProperties.Name="アーカイブ一覧"
                           VirtualizingPanel.IsVirtualizing="True"
                           VirtualizingPanel.VirtualizationMode="Recycling"
-                          ScrollViewer.CanContentScroll="True">
+                          ScrollViewer.CanContentScroll="True"
+                          Visibility="{Binding IsDetailView, Converter={StaticResource BoolToVisibility}}">
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="ファイル名" Width="320" DisplayMemberBinding="{Binding FileName}" />
@@ -104,6 +167,31 @@
                         </GridView>
                     </ListView.View>
                 </ListView>
+
+                <ListBox x:Name="ThumbnailList"
+                         ItemsSource="{Binding ThumbnailRows}"
+                         ItemTemplate="{StaticResource ThumbnailRowTemplate}"
+                         AutomationProperties.Name="アーカイブのサムネイル一覧"
+                         VirtualizingPanel.IsVirtualizing="True"
+                         VirtualizingPanel.VirtualizationMode="Recycling"
+                         ScrollViewer.CanContentScroll="True"
+                         ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         Visibility="{Binding IsThumbnailView, Converter={StaticResource BoolToVisibility}}"
+                         SizeChanged="OnThumbnailListSizeChanged">
+                    <ListBox.ItemContainerStyle>
+                        <Style TargetType="ListBoxItem">
+                            <Setter Property="Focusable" Value="False" />
+                            <Setter Property="Template">
+                                <Setter.Value>
+                                    <ControlTemplate TargetType="ListBoxItem">
+                                        <ContentPresenter />
+                                    </ControlTemplate>
+                                </Setter.Value>
+                            </Setter>
+                        </Style>
+                    </ListBox.ItemContainerStyle>
+                </ListBox>
+
                 <TextBlock Text="{Binding EmptyMessage}"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
