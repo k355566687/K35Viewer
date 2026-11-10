@@ -12,7 +12,7 @@ internal sealed class MainTestHarness : IDisposable
 {
     private readonly LibraryTestContext _ctx;
 
-    public MainTestHarness(LibraryTestContext ctx)
+    public MainTestHarness(LibraryTestContext ctx, ArchiveService? archives = null)
     {
         _ctx = ctx;
         Notifications = new NotificationService();
@@ -21,7 +21,7 @@ internal sealed class MainTestHarness : IDisposable
             ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, Dialogs, NullLogger<LibraryViewModel>.Instance);
         Viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
         Toasts = new ToastHostViewModel(Notifications);
-        Main = new MainViewModel(Library, Viewer, Toasts, Notifications, Dialogs, NullLogger<MainViewModel>.Instance);
+        Main = new MainViewModel(Library, Viewer, Toasts, Notifications, Dialogs, archives ?? ctx.Archives, NullLogger<MainViewModel>.Instance);
     }
 
     public NotificationService Notifications { get; }
@@ -75,15 +75,15 @@ internal sealed class MainTestHarness : IDisposable
         /// <summary>変更確認ダイアログで返す選択。</summary>
         public LeaveChoice Choice { get; set; } = LeaveChoice.Cancel;
 
-        public List<(string ArchiveName, int Count, bool CanUpdate)> LeaveConfirmations { get; } = [];
+        public List<(string ArchiveName, int Count, string? UpdateUnavailableReason)> LeaveConfirmations { get; } = [];
 
         public string? PickFolder() => null;
 
         public bool ConfirmMerge(string parentPath, IReadOnlyList<string> childPaths) => false;
 
-        public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, bool canUpdate)
+        public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, string? updateUnavailableReason)
         {
-            LeaveConfirmations.Add((archiveName, pendingDeleteCount, canUpdate));
+            LeaveConfirmations.Add((archiveName, pendingDeleteCount, updateUnavailableReason));
             return Choice;
         }
     }

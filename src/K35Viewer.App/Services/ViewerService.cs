@@ -38,7 +38,8 @@ public sealed partial class ViewerService(
             return Fail("アーカイブが見つかりません。ライブラリを再スキャンしてください", warning: true);
         }
 
-        if (fileSystem.TryGetFileState(info.FullPath) is null)
+        // 開く直前のファイルの状態。閲覧中・更新前に、外部で変更されていないかの確認に使う
+        if (fileSystem.TryGetFileState(info.FullPath) is not { } state)
         {
             return Fail(
                 Format($"「{info.FileName}」が見つかりません。ライブラリを再スキャンしてください"), warning: true);
@@ -49,7 +50,12 @@ public sealed partial class ViewerService(
         {
             case ArchiveAnalysisStatus.Ready when result.Archive is { } archive:
                 var session = new ViewerSession(
-                    info.Id, info.FileName, info.FullPath, archive, InitialIndex(info, archive.Images));
+                    info.Id,
+                    info.FileName,
+                    info.FullPath,
+                    archive,
+                    InitialIndex(info, archive.Images),
+                    new ArchiveFileState(state.FileSize, state.LastWriteTime));
                 LogOpened(logger, info.Id, session.Count, session.CurrentIndex);
                 return new ViewerOpenResult(session, null);
 

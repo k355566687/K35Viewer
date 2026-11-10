@@ -10,16 +10,17 @@ namespace K35Viewer.Views;
 /// </summary>
 public partial class ArchiveChangeDialog : Window
 {
-    public ArchiveChangeDialog(string archiveName, int pendingDeleteCount, bool canUpdate)
+    public ArchiveChangeDialog(string archiveName, int pendingDeleteCount, string? updateUnavailableReason)
     {
         InitializeComponent();
         MessageText.Text = string.Create(
             CultureInfo.CurrentCulture,
             $"{archiveName} で{pendingDeleteCount:N0}枚の画像が削除対象になっています。{Environment.NewLine}アーカイブを更新しますか？");
-        UpdateButton.IsEnabled = canUpdate;
-        NoteText.Text = canUpdate
-            ? "「変更を破棄」を選ぶと、削除予約を取り消して元のアーカイブのまま離れます。"
-            : "アーカイブの更新はまだ利用できません。「変更を破棄」を選ぶと、削除予約を取り消して元のアーカイブのまま離れます。";
+        UpdateButton.IsEnabled = updateUnavailableReason is null;
+        NoteText.Text = updateUnavailableReason is null
+            ? "「更新する」を選ぶと、削除対象を除いたアーカイブを作り、元のアーカイブはWindowsのごみ箱へ移動します。" +
+              "「変更を破棄」を選ぶと、削除予約を取り消して元のアーカイブのまま離れます。"
+            : updateUnavailableReason + "。「変更を破棄」を選ぶと、削除予約を取り消して元のアーカイブのまま離れます。";
     }
 
     /// <summary>ユーザーの選択。ダイアログを閉じた場合はキャンセル。</summary>

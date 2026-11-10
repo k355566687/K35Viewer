@@ -60,6 +60,7 @@ public sealed partial class ViewerViewModel(
     private PageImageLoader? _loader;
     private PageThumbnailSource? _thumbnailSource;
     private CancellationTokenSource? _saveCts;
+    private bool _positionSaveSuppressed;
     private int _showVersion;
     private int _savedIndex = -1;
     private int _anchorIndex;
@@ -174,6 +175,52 @@ public sealed partial class ViewerViewModel(
     /// <summary>選択されている画像の位置（昇順）。削除予約などの操作の対象になる。</summary>
     public IReadOnlyList<int> SelectedIndices => [.. _selected.Order()];
 
+    /// <summary>開いているアーカイブの閲覧状態。開いていなければ null。ZIP更新の依頼を作るために使う。</summary>
+    public ViewerSession? Session => _session;
+
+    /// <summary>
+    /// アーカイブの更新（削除予約の反映）を始める前に呼ぶ。更新が終わるまで、閲覧位置を保存しない
+    /// （更新で決めた位置を、更新前の古い位置で上書きしないため）。
+    /// </summary>
+    public void SuspendPositionSaving()
+    {
+        _positionSaveSuppressed = true;
+        _saveCts?.Cancel();
+    }
+
+    /// <summary>更新が失敗・キャンセルされ、ビューアで閲覧を続けるときに呼ぶ。閲覧位置の保存を再開する。</summary>
+    public void ResumePositionSaving()
+    {
+        _positionSaveSuppressed = false;
+        ScheduleSave();
+    }
+
+    /// <summary>
+    /// アーカイブの更新（削除予約の反映）が済んだことを伝える。アーカイブの内容が変わったため、削除予約の表示をなくす。
+    /// 閲覧位置の保存は止めたままにする。呼び出し側は、このあとビューアを閉じる。
+    /// </summary>
+    public void MarkArchiveUpdated()
+    {
+        if (_session is not { } session)
+        {
+            return;
+        }
+
+        _positionSaveSuppressed = true;
+        foreach (var index in session.PendingDeleteIndices)
+        {
+            if (index < Pages.Count)
+            {
+                Pages[index].IsPendingDelete = false;
+            }
+        }
+
+        session.ClearPendingDelete();
+        PendingDeleteCount = 0;
+        PendingDeleteText = string.Empty;
+        IsCurrentPendingDelete = false;
+    }
+
     /// <summary>
     /// アーカイブを開いて最初の頁を表示する。開けなかった場合（理由はトーストで通知済み）は false。
     /// すでに開いている場合は何もせず false。
@@ -194,6 +241,7 @@ public sealed partial class ViewerViewModel(
         _session = session;
         _loader = new PageImageLoader(session, decoder);
         _thumbnailSource = new PageThumbnailSource(session, thumbnailGenerator);
+        _positionSaveSuppressed = false;
         _savedIndex = -1;
         _markedCurrentIndex = -1;
         _anchorIndex = session.CurrentIndex;
@@ -972,7 +1020,7 @@ public sealed partial class ViewerViewModel(
     private void ScheduleSave()
     {
         var session = _session;
-        if (session is null || session.CurrentIndex == _savedIndex)
+        if (session is null || _positionSaveSuppressed || session.CurrentIndex == _savedIndex)
         {
             return;
         }
@@ -1001,7 +1049,7 @@ public sealed partial class ViewerViewModel(
     private async Task SaveNowAsync(ViewerSession session)
     {
         var index = session.CurrentIndex;
-        if (index == _savedIndex)
+        if (_positionSaveSuppressed || index == _savedIndex)
         {
             return;
         }

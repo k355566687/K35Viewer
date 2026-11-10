@@ -16,7 +16,13 @@ public sealed class ViewerSession : IDisposable
     private readonly HashSet<int> _pendingDelete = [];
     private bool _disposed;
 
-    internal ViewerSession(long archiveId, string archiveName, string archivePath, IOpenedArchive archive, int initialIndex)
+    internal ViewerSession(
+        long archiveId,
+        string archiveName,
+        string archivePath,
+        IOpenedArchive archive,
+        int initialIndex,
+        ArchiveFileState? openedFileState = null)
     {
         ArchiveId = archiveId;
         ArchiveName = archiveName;
@@ -24,6 +30,46 @@ public sealed class ViewerSession : IDisposable
         _archive = archive;
         Entries = archive.Images;
         CurrentIndex = initialIndex;
+        OpenedFileState = openedFileState;
+    }
+
+    /// <summary>
+    /// アーカイブを開く直前のファイルのサイズと更新日時。閲覧中・更新前にファイルが外部で変更されていないかの確認に使う。
+    /// 取得できなかった場合は null（その場合、外部変更の確認はできない）。
+    /// </summary>
+    public ArchiveFileState? OpenedFileState { get; }
+
+    /// <summary>
+    /// 削除予約を反映するためのZIP更新の依頼を作る（UC-11）。削除予約がなければ null。
+    /// 更新後に開き直す位置（現在の画像、予約済みなら次または前の未削除の画像）も含める。
+    /// </summary>
+    public ArchiveUpdateRequest? CreateUpdateRequest()
+    {
+        if (_pendingDelete.Count == 0)
+        {
+            return null;
+        }
+
+        string? resumeEntry = null;
+        int? resumeIndex = null;
+        if (_pendingDelete.Count < Count)
+        {
+            var target = !_pendingDelete.Contains(CurrentIndex)
+                ? CurrentIndex
+                : FindNext(CurrentIndex) is var next and >= 0 ? next : FindPrevious(CurrentIndex);
+            resumeEntry = Entries[target].FullName;
+            resumeIndex = target - _pendingDelete.Count(index => index < target); // 削除後の、画像の位置
+        }
+
+        return new ArchiveUpdateRequest(
+            ArchiveId,
+            ArchiveName,
+            ArchivePath,
+            OpenedFileState,
+            [.. PendingDeleteEntries],
+            Count - _pendingDelete.Count,
+            resumeEntry,
+            resumeIndex);
     }
 
     public long ArchiveId { get; }

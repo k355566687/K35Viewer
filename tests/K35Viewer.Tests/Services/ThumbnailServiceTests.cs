@@ -179,13 +179,13 @@ public class ThumbnailServiceTests
         var path = ctx.CreateZip("a.zip", ("1.jpg", TestImages.Jpeg(100, 100)));
         await ctx.RegisterAndScanAsync();
         var backup = path + ".bak";
-        File.Move(path, backup); // 一時的な切断を模す(再スキャンはしない)
+        TestFileOperations.MoveFile(path, backup); // 一時的な切断を模す(再スキャンはしない)
 
         await ctx.Thumbnails.ProcessPendingAsync(ct: Ct);
         Assert.Equal(1, await ctx.ScalarAsync(
             "SELECT COUNT(*) FROM archives WHERE analysis_status = 'ERROR' AND error_code = 'FILE_NOT_FOUND'"));
 
-        File.Move(backup, path);
+        TestFileOperations.MoveFile(backup, path);
         var sameSession = await ctx.Thumbnails.ProcessPendingAsync(ct: Ct);
         Assert.Equal(0, sameSession!.Total); // 同じ起動中は再試行しない
 

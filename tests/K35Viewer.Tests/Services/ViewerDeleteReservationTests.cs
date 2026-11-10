@@ -381,7 +381,7 @@ public class ViewerDeleteReservationTests
         await Task.Delay(200, Ct);
 
         var confirmation = Assert.Single(harness.Dialogs.LeaveConfirmations);
-        Assert.Equal(("book.zip", 2, false), confirmation); // 更新する（Phase 8）はまだ選べない
+        Assert.Equal(("book.zip", 2, (string?)null), confirmation); // 更新できる状態（理由なし）で確認する
         Assert.True(harness.Main.IsViewerVisible);
         Assert.True(harness.Viewer.IsOpen);
         Assert.Equal(2, harness.Viewer.PendingDeleteCount); // 予約は保持される
@@ -418,14 +418,14 @@ public class ViewerDeleteReservationTests
     {
         using var ctx = new LibraryTestContext();
         using var harness = await OpenInMainAsync(ctx);
-        Assert.True(harness.Main.ConfirmLeaveViewer());
+        Assert.Equal(LeaveDecision.Proceed, harness.Main.DecideLeave());
         Assert.Empty(harness.Dialogs.LeaveConfirmations);
         harness.Viewer.ToggleDeleteCommand.Execute(null);
 
         harness.Dialogs.Choice = LeaveChoice.Cancel;
-        Assert.False(harness.Main.ConfirmLeaveViewer());
+        Assert.Equal(LeaveDecision.Stay, harness.Main.DecideLeave());
         harness.Dialogs.Choice = LeaveChoice.Discard;
-        Assert.True(harness.Main.ConfirmLeaveViewer());
+        Assert.Equal(LeaveDecision.Proceed, harness.Main.DecideLeave());
 
         Assert.Equal(2, harness.Dialogs.LeaveConfirmations.Count);
         await harness.Viewer.CloseAsync();
@@ -528,13 +528,13 @@ public class ViewerDeleteReservationTests
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            var unavailable = new ArchiveChangeDialog("ABC.zip", 5, canUpdate: false);
+            var unavailable = new ArchiveChangeDialog("ABC.zip", 5, "アーカイブが外部で変更されたため、更新できません");
             updateEnabledWhenUnavailable = ((Button)unavailable.FindName("UpdateButton")).IsEnabled;
             cancelIsDefault = ((Button)unavailable.FindName("CancelButton")).IsDefault;
             message = ((TextBlock)unavailable.FindName("MessageText")).Text;
             choiceWhenClosed = unavailable.Choice;
 
-            var available = new ArchiveChangeDialog("ABC.zip", 5, canUpdate: true);
+            var available = new ArchiveChangeDialog("ABC.zip", 5, null);
             updateEnabledWhenAvailable = ((Button)available.FindName("UpdateButton")).IsEnabled;
         });
 

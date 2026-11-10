@@ -33,9 +33,9 @@ public sealed class WpfDialogService : IDialogService
             MessageBoxResult.No) == MessageBoxResult.Yes;
     }
 
-    public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, bool canUpdate)
+    public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, string? updateUnavailableReason)
     {
-        var dialog = new ArchiveChangeDialog(archiveName, pendingDeleteCount, canUpdate);
+        var dialog = new ArchiveChangeDialog(archiveName, pendingDeleteCount, updateUnavailableReason);
         var owner = Application.Current?.MainWindow;
         if (owner is { IsVisible: true } && !ReferenceEquals(owner, dialog))
         {

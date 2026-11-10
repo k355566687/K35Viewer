@@ -267,6 +267,46 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>
+    /// ZIPの再構築（画像の削除）を反映する。サイズ・更新日時・画像枚数を新しいファイルの値にし、解析待ち(PENDING)に戻して
+    /// サムネイルと表紙を作り直させる。最後に閲覧した位置は、更新後のアーカイブでの位置にする
+    /// （位置がなければ、閲覧位置を消す）。スキャンが再構築の途中で不在(MISSING)にしていた場合も、有効に戻す。
+    /// </summary>
+    public async Task UpdateAfterRebuildAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long id,
+        long fileSize,
+        long lastWriteTime,
+        int imageCount,
+        string? lastViewEntry,
+        int? lastViewIndex,
+        long now,
+        CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            UPDATE archives
+               SET file_size = $size, last_write_time = $mtime, image_count = $count, first_image_entry = NULL,
+                   analysis_status = 'PENDING', error_code = NULL, error_message = NULL,
+                   availability_status = 'AVAILABLE',
+                   last_view_entry = $entry, last_view_index = $index,
+                   last_viewed_at = CASE WHEN $entry IS NULL THEN NULL ELSE $now END,
+                   updated_at = $now
+             WHERE id = $id
+            """,
+            ("$id", id),
+            ("$size", fileSize),
+            ("$mtime", lastWriteTime),
+            ("$count", imageCount),
+            ("$entry", lastViewEntry),
+            ("$index", lastViewIndex),
+            ("$now", now));
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     /// <summary>LIKEのワイルドカード(% _)とエスケープ文字を、文字そのものとして扱えるようにする。</summary>
     internal static string EscapeLike(string term) =>
         term.Replace("\\", "\\\\", StringComparison.Ordinal)

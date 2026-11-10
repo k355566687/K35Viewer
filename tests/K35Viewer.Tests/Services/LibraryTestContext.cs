@@ -80,6 +80,95 @@ internal sealed class CountingArchiveReader(IArchiveReader inner) : IArchiveRead
     }
 }
 
+/// <summary>
+/// テスト用のフォルダ・ファイルの移動。Windowsでは、ウイルス対策ソフトやインデックス処理が、作ったばかりの
+/// フォルダやファイルを一時的に掴み、名前の変更が「アクセス拒否」になることがある。短い間隔で再試行する。
+/// </summary>
+internal static class TestFileOperations
+{
+    private const int Attempts = 40;
+
+    public static void MoveDirectory(string source, string destination) =>
+        Retry(() => Directory.Move(source, destination));
+
+    public static void MoveFile(string source, string destination) =>
+        Retry(() => File.Move(source, destination));
+
+    /// <summary>フォルダを中身ごと削除する（存在しなければ何もしない）。</summary>
+    public static void DeleteDirectory(string path) =>
+        Retry(() =>
+        {
+            if (Directory.Exists(path))
+            {
+                Directory.Delete(path, recursive: true);
+            }
+        });
+
+    private static void Retry(Action action)
+    {
+        for (var attempt = 1; ; attempt++)
+        {
+            try
+            {
+                action();
+                return;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException && attempt < Attempts)
+            {
+                Thread.Sleep(50);
+            }
+        }
+    }
+}
+
+/// <summary>
+/// 実際のごみ箱の代わりのテスト用実装（自動テストは、実際のごみ箱を操作しない）。
+/// 移動するファイルは、テスト用の一時フォルダへ移す。利用不可・失敗・移動直後の処理を設定できる。
+/// </summary>
+internal sealed class FakeRecycleBin(string directory) : IRecycleBinService
+{
+    private int _moveCalls;
+
+    /// <summary>移動されたファイルを置くフォルダ。</summary>
+    public string Directory { get; } = directory;
+
+    /// <summary>null なら利用できる。それ以外は、利用できない理由。</summary>
+    public string? Unavailable { get; set; }
+
+    /// <summary>true なら、移動を試みて失敗する（元のファイルはそのまま残る）。</summary>
+    public bool FailToMove { get; set; }
+
+    /// <summary>移動した直後（元の場所が空になった後）に実行する処理。置き換えの失敗を再現するために使う。</summary>
+    public Action<string>? AfterMove { get; set; }
+
+    public int MoveCalls => Volatile.Read(ref _moveCalls);
+
+    /// <summary>ごみ箱へ移されたファイル。</summary>
+    public IReadOnlyList<string> Items =>
+        System.IO.Directory.Exists(Directory) ? [.. System.IO.Directory.GetFiles(Directory)] : [];
+
+    public string? CheckAvailability(string path) => Unavailable;
+
+    public RecycleBinResult MoveToRecycleBin(string path)
+    {
+        _ = Interlocked.Increment(ref _moveCalls);
+        if (Unavailable is not null)
+        {
+            return new RecycleBinResult(RecycleBinStatus.Unavailable, Unavailable);
+        }
+
+        if (FailToMove)
+        {
+            return new RecycleBinResult(RecycleBinStatus.Failed, "テスト用の失敗");
+        }
+
+        System.IO.Directory.CreateDirectory(Directory);
+        File.Move(path, Path.Combine(Directory, Guid.NewGuid().ToString("N") + "-" + Path.GetFileName(path)));
+        AfterMove?.Invoke(path);
+        return new RecycleBinResult(RecycleBinStatus.Moved);
+    }
+}
+
 internal sealed class LibraryTestContext : IDisposable
 {
     private readonly TempDatabase _db = new();
@@ -87,6 +176,7 @@ internal sealed class LibraryTestContext : IDisposable
     private readonly LibraryRepository _libraries;
     private readonly FileSystemService _fileSystem = new();
     private readonly ThumbnailRepository _thumbnailRepository;
+    private readonly HistoryRepository _history;
     private readonly List<IDisposable> _disposables = [];
 
     public LibraryTestContext()
@@ -100,6 +190,7 @@ internal sealed class LibraryTestContext : IDisposable
         _writer = new DatabaseWriter(_db.Factory);
         _libraries = new LibraryRepository(_db.Factory);
         var history = new HistoryRepository();
+        _history = history;
         ArchiveRepository = new ArchiveRepository(_db.Factory);
         _thumbnailRepository = new ThumbnailRepository(_db.Factory);
         Cache = new ThumbnailCacheStore(CacheDirectory);
@@ -115,7 +206,28 @@ internal sealed class LibraryTestContext : IDisposable
             Reader, ArchiveRepository, _writer, _fileSystem, Notifications, NullLogger<ViewerService>.Instance);
         ImageLoader = new ThumbnailImageLoader(Cache);
         _disposables.Add(ImageLoader);
+
+        RecycleBin = new FakeRecycleBin(Path.Combine(root, "bin-" + id));
+        Archives = CreateArchiveService();
     }
+
+    /// <summary>実際のごみ箱の代わり。元のファイルを、テスト用の一時フォルダへ移す。</summary>
+    public FakeRecycleBin RecycleBin { get; }
+
+    /// <summary>実際のZIP再構築と、偽のごみ箱を使うアーカイブ更新サービス。</summary>
+    public ArchiveService Archives { get; }
+
+    /// <summary>
+    /// アーカイブ更新サービスを作る。書き込み処理やごみ箱を差し替えて、失敗を再現できる。
+    /// 置き換えの再試行の待ち時間は、テストを速くするため短くする。
+    /// </summary>
+    public ArchiveService CreateArchiveService(
+        IArchiveWriter? writer = null, IRecycleBinService? recycleBin = null, IReadOnlyList<TimeSpan>? replaceDelays = null) =>
+        new(writer ?? new ArchiveWriter(), recycleBin ?? RecycleBin, _fileSystem, ArchiveRepository, _thumbnailRepository,
+            _history, _writer, Notifications, NullLogger<ArchiveService>.Instance)
+        {
+            ReplaceDelays = replaceDelays ?? [TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1)],
+        };
 
     public ThumbnailImageLoader ImageLoader { get; }
 
@@ -207,12 +319,9 @@ internal sealed class LibraryTestContext : IDisposable
         Scan.Dispose();
         _writer.Dispose();
         _db.Dispose();
-        foreach (var directory in new[] { Workspace, CacheDirectory })
+        foreach (var directory in new[] { Workspace, CacheDirectory, RecycleBin.Directory })
         {
-            if (Directory.Exists(directory))
-            {
-                Directory.Delete(directory, recursive: true);
-            }
+            TestFileOperations.DeleteDirectory(directory);
         }
     }
 }

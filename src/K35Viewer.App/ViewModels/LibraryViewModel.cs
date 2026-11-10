@@ -155,6 +155,16 @@ public sealed partial class LibraryViewModel(
         }
     }
 
+    /// <summary>
+    /// アプリ内の操作でアーカイブが変更された（画像を削除してZIPを更新した）あとに呼ぶ。
+    /// 一覧を読み込み直し、再生成待ちになったサムネイルの作成を始める。
+    /// </summary>
+    public async Task OnArchiveChangedAsync()
+    {
+        await ReloadAsync();
+        StartThumbnailProcessing();
+    }
+
     /// <summary>ツリーで項目が選択されたときにViewから呼ばれる。</summary>
     public void OnFolderSelected(FolderTreeItem item)
     {

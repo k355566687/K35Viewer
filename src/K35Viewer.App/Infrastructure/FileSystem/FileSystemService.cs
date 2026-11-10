@@ -70,6 +70,62 @@ public sealed class FileSystemService
     }
 
     /// <summary>
+    /// アーカイブの再構築で使う一時ファイルのパスを作る。置換時に別ボリュームへのコピーが起きないよう、元のファイルと
+    /// 同じフォルダに置く。拡張子を .zip / .cbz にしないため、スキャンの対象にならない。
+    /// </summary>
+    public string CreateTempPath(string archivePath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+
+        var directory = Path.GetDirectoryName(Path.GetFullPath(archivePath))
+            ?? throw new ArgumentException("フォルダを特定できません", nameof(archivePath));
+        return Path.Combine(directory, $"{Path.GetFileName(archivePath)}.{Guid.NewGuid():N}{TempFileSuffix}");
+    }
+
+    /// <summary>一時ファイルの拡張子（スキャンの対象外）。</summary>
+    public const string TempFileSuffix = ".k35tmp";
+
+    /// <summary>ファイルを削除する。存在しない・削除できない場合は何もせず false（後始末用で、例外にしない）。</summary>
+    public bool TryDelete(string path)
+    {
+        try
+        {
+            if (!File.Exists(path))
+            {
+                return true;
+            }
+
+            File.Delete(path);
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>ファイルを移動（名前変更）する。移動先に同名のファイルがあれば失敗する（上書きしない）。</summary>
+    public void MoveFile(string sourcePath, string destinationPath) => File.Move(sourcePath, destinationPath, overwrite: false);
+
+    /// <summary>
+    /// ファイルの置き場所のドライブの空き容量（バイト）。UNCパスなど調べられない場合は null。
+    /// </summary>
+    public long? GetAvailableFreeSpace(string path)
+    {
+        try
+        {
+            var root = Path.GetPathRoot(Path.GetFullPath(path));
+            return string.IsNullOrEmpty(root) || root.StartsWith(@"\\", StringComparison.Ordinal)
+                ? null
+                : new DriveInfo(root).AvailableFreeSpace;
+        }
+        catch (Exception ex) when (ex is IOException or ArgumentException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
+    /// <summary>
     /// 登録フォルダ配下を再帰的に列挙し、ZIP / CBZ とフォルダ構造を返す。
     /// 読み取れないフォルダはスキップして Failed として記録し、処理を継続する。
     /// シンボリックリンク等(ReparsePoint)のフォルダは循環を避けるため辿らない。

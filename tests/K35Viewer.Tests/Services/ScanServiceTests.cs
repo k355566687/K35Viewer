@@ -139,11 +139,11 @@ public class ScanServiceTests
         var id = await AddAndGetIdAsync(ctx);
         await ctx.Scan.ScanAsync(id, ScanType.Initial, Ct);
         var archiveId = await ctx.ScalarAsync("SELECT id FROM archives");
-        File.Move(ctx.PathOf("a.zip"), ctx.PathOf("a.zip.bak"));
+        TestFileOperations.MoveFile(ctx.PathOf("a.zip"), ctx.PathOf("a.zip.bak"));
         await ctx.Scan.ScanAsync(id, ScanType.Manual, Ct);
         Assert.Equal(0, await ctx.ArchiveRepository.CountAvailableAsync(id, Ct));
 
-        File.Move(ctx.PathOf("a.zip.bak"), ctx.PathOf("a.zip"));
+        TestFileOperations.MoveFile(ctx.PathOf("a.zip.bak"), ctx.PathOf("a.zip"));
         var summary = await ctx.Scan.ScanAsync(id, ScanType.Manual, Ct);
 
         Assert.Equal(1, summary.Changed);
@@ -346,8 +346,8 @@ public class ScanServiceTests
         await ctx.Scan.ScanAsync(id, ScanType.Initial, Ct);
 
         // 名前の大文字小文字だけを変える(Windowsでは同じフォルダ)
-        Directory.Move(ctx.PathOf("Sub"), ctx.PathOf("Sub_tmp"));
-        Directory.Move(ctx.PathOf("Sub_tmp"), ctx.PathOf("SUB"));
+        TestFileOperations.MoveDirectory(ctx.PathOf("Sub"), ctx.PathOf("Sub_tmp"));
+        TestFileOperations.MoveDirectory(ctx.PathOf("Sub_tmp"), ctx.PathOf("SUB"));
         var summary = await ctx.Scan.ScanAsync(id, ScanType.Manual, Ct);
 
         Assert.Equal(0, summary.Added);

@@ -50,6 +50,9 @@ public partial class App : Application
         builder.Services.AddSingleton<ThumbnailService>();
         builder.Services.AddSingleton<ThumbnailImageLoader>(sp => new ThumbnailImageLoader(sp.GetRequiredService<ThumbnailCacheStore>()));
         builder.Services.AddSingleton<IDialogService, WpfDialogService>();
+        builder.Services.AddSingleton<IArchiveWriter, ArchiveWriter>();
+        builder.Services.AddSingleton<IRecycleBinService, RecycleBinService>();
+        builder.Services.AddSingleton<ArchiveService>();
         builder.Services.AddSingleton<ViewerService>();
         builder.Services.AddSingleton<ViewerImageDecoder>();
         builder.Services.AddSingleton<LibraryViewModel>();

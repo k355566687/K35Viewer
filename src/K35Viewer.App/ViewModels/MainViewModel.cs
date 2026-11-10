@@ -1,14 +1,29 @@
 using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
+using CommunityToolkit.Mvvm.Input;
 using K35Viewer.Services;
 using Microsoft.Extensions.Logging;
 
 namespace K35Viewer.ViewModels;
 
+/// <summary>ビューアのアーカイブを離れる前の確認（DLG-01）の結果。</summary>
+public enum LeaveDecision
+{
+    /// <summary>そのまま離れてよい（削除予約がない、または「変更を破棄」が選ばれた）。</summary>
+    Proceed,
+
+    /// <summary>離れるのをやめて、ビューアに留まる。</summary>
+    Stay,
+
+    /// <summary>「更新する」が選ばれた。<see cref="MainViewModel.UpdateArchiveAsync"/> で更新してから離れる。</summary>
+    Update,
+}
+
 /// <summary>
 /// メインウィンドウのViewModel。ライブラリ画面とビューア画面を、同じウィンドウ内で切り替える。
 /// どちらの画面も表示を切り替えるだけで作り直さないため、ライブラリへ戻ったときに
 /// スクロール位置や検索条件がそのまま残る。
+/// ビューアを離れるときの変更確認と、削除予約を反映するZIP更新の進行も担当する。
 /// </summary>
 public sealed partial class MainViewModel : ObservableObject
 {
@@ -16,7 +31,10 @@ public sealed partial class MainViewModel : ObservableObject
 
     private readonly NotificationService _notifications;
     private readonly IDialogService _dialogs;
+    private readonly ArchiveService _archives;
     private readonly ILogger<MainViewModel> _logger;
+    private CancellationTokenSource? _updateCts;
+    private ViewerSession? _externalChangeWarnedFor;
     private bool _isTransitioning;
 
     public MainViewModel(
@@ -25,6 +43,7 @@ public sealed partial class MainViewModel : ObservableObject
         ToastHostViewModel toasts,
         NotificationService notifications,
         IDialogService dialogs,
+        ArchiveService archives,
         ILogger<MainViewModel> logger)
     {
         Library = library;
@@ -32,6 +51,7 @@ public sealed partial class MainViewModel : ObservableObject
         Toasts = toasts;
         _notifications = notifications;
         _dialogs = dialogs;
+        _archives = archives;
         _logger = logger;
 
         Library.OpenRequested += OnOpenRequested;
@@ -45,10 +65,29 @@ public sealed partial class MainViewModel : ObservableObject
 
     public ToastHostViewModel Toasts { get; }
 
+    /// <summary>
+    /// 画面の更新（進行状況の表示など）をUIスレッドへ届けるためのコンテキスト。作成したスレッドのものを使う。
+    /// テストで、画面のスレッドと別のスレッドから作った場合に差し替える。
+    /// </summary>
+    internal SynchronizationContext? UiContext { get; set; } = SynchronizationContext.Current;
+
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsLibraryVisible))]
     [NotifyPropertyChangedFor(nameof(Title))]
     private bool _isViewerVisible;
+
+    /// <summary>アーカイブを更新（ZIPを再構築）している間は true。この間は、画面の操作を受け付けない。</summary>
+    [ObservableProperty]
+    private bool _isUpdating;
+
+    /// <summary>更新の進行状況の説明。</summary>
+    [ObservableProperty]
+    private string _updateStatusText = string.Empty;
+
+    /// <summary>更新をキャンセルできるか。元のZIPのごみ箱への退避を始めたあと（安全境界を越えたあと）は false。</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CancelUpdateCommand))]
+    private bool _canCancelUpdate;
 
     public bool IsLibraryVisible => !IsViewerVisible;
 
@@ -56,6 +95,119 @@ public sealed partial class MainViewModel : ObservableObject
     public string Title => IsViewerVisible && Viewer.ArchiveName.Length > 0
         ? $"{Viewer.ArchiveName} - {ProductName}"
         : ProductName;
+
+    /// <summary>
+    /// ビューアのアーカイブを離れてよいか確認する（ライブラリへ戻る場合、アプリを終了する場合）。
+    /// 削除予約がなければ確認せずに <see cref="LeaveDecision.Proceed"/>。あれば変更確認ダイアログ（DLG-01）を表示する。
+    /// 「変更を破棄」なら Proceed（離れると削除予約は破棄され、ZIP本体は変更されない）、キャンセルなら Stay、
+    /// 「更新する」なら Update。アーカイブが外部で変更されている、ごみ箱を使えない保存先、などの場合は「更新する」を選べない。
+    /// </summary>
+    public LeaveDecision DecideLeave()
+    {
+        if (!IsViewerVisible || Viewer.PendingDeleteCount == 0 || Viewer.Session?.CreateUpdateRequest() is not { } request)
+        {
+            return LeaveDecision.Proceed;
+        }
+
+        var reason = _archives.GetUpdateBlockReason(request);
+        var choice = _dialogs.ConfirmLeaveArchive(Viewer.ArchiveName, request.EntriesToRemove.Count, reason);
+        return choice switch
+        {
+            LeaveChoice.Discard => LeaveDecision.Proceed,
+            LeaveChoice.Update when reason is null => LeaveDecision.Update,
+            _ => LeaveDecision.Stay,
+        };
+    }
+
+    /// <summary>
+    /// 削除予約を反映して、ビューアで開いているアーカイブを更新する（UC-11）。成功した場合は true
+    /// （呼び出し側はこのあとビューアを閉じる）。失敗・キャンセルの場合は false で、元のアーカイブと削除予約が残る。
+    /// 置き換えの途中で失敗して元のアーカイブに戻せない場合も true（ビューアの内容が古いため、閉じる必要がある）。
+    /// 結果は通知される。更新中は <see cref="IsUpdating"/> が true になり、キャンセルできる間は <see cref="CancelUpdateCommand"/> が使える。
+    /// </summary>
+    public async Task<bool> UpdateArchiveAsync()
+    {
+        if (IsUpdating || Viewer.Session?.CreateUpdateRequest() is not { } request)
+        {
+            return false;
+        }
+
+        using var cts = new CancellationTokenSource();
+        _updateCts = cts;
+        IsUpdating = true;
+        CanCancelUpdate = true;
+        UpdateStatusText = DescribePhase(ArchiveUpdatePhase.Preparing);
+        Viewer.SuspendPositionSaving();
+        var mustLeave = false;
+        try
+        {
+            var progress = new ContextProgress<ArchiveUpdatePhase>(UiContext, OnUpdatePhase);
+            var result = await _archives.ApplyDeletionsAsync(request, progress, cts.Token);
+            mustLeave = result.Succeeded || !result.OriginalPreserved;
+            if (mustLeave)
+            {
+                Viewer.MarkArchiveUpdated();
+            }
+
+            return mustLeave;
+        }
+        catch (Exception ex)
+        {
+            LogUpdateFailed(_logger, ex);
+            _notifications.ShowError("アーカイブを更新できませんでした");
+            return false;
+        }
+        finally
+        {
+            if (!mustLeave)
+            {
+                Viewer.ResumePositionSaving();
+            }
+
+            IsUpdating = false;
+            CanCancelUpdate = false;
+            UpdateStatusText = string.Empty;
+            _updateCts = null;
+        }
+    }
+
+    /// <summary>
+    /// ウィンドウが前面になったときに呼ぶ。ビューアで開いているアーカイブが、外部で変更されていれば、
+    /// 閲覧内容が古い可能性を通知する（同じアーカイブにつき1回だけ）。
+    /// </summary>
+    public void OnWindowActivated()
+    {
+        if (!IsViewerVisible || IsUpdating || Viewer.Session is not { } session
+            || ReferenceEquals(_externalChangeWarnedFor, session))
+        {
+            return;
+        }
+
+        if (_archives.IsChangedExternally(session.ArchivePath, session.OpenedFileState))
+        {
+            _externalChangeWarnedFor = session;
+            _notifications.ShowWarning(
+                $"「{session.ArchiveName}」が外部で変更されました。表示内容が古い可能性があります。ライブラリへ戻って開き直してください");
+        }
+    }
+
+    [RelayCommand(CanExecute = nameof(CanCancelUpdate))]
+    private void CancelUpdate() => _updateCts?.Cancel();
+
+    private void OnUpdatePhase(ArchiveUpdatePhase phase)
+    {
+        UpdateStatusText = DescribePhase(phase);
+        CanCancelUpdate = phase is ArchiveUpdatePhase.Preparing or ArchiveUpdatePhase.Rebuilding or ArchiveUpdatePhase.Verifying;
+    }
+
+    private static string DescribePhase(ArchiveUpdatePhase phase) => phase switch
+    {
+        ArchiveUpdatePhase.Preparing => "更新できるか確認しています…",
+        ArchiveUpdatePhase.Rebuilding => "削除する画像を除いたアーカイブを作成しています…",
+        ArchiveUpdatePhase.Verifying => "作成したアーカイブを確認しています…",
+        ArchiveUpdatePhase.Replacing => "元のアーカイブをごみ箱へ移動して、置き換えています…（この処理は中止できません）",
+        _ => "記録を更新しています…（この処理は中止できません）",
+    };
 
     // 画面操作から呼ばれるイベント。例外でアプリを落とさないよう、中で処理する
     private async void OnOpenRequested(object? sender, long archiveId)
@@ -87,13 +239,14 @@ public sealed partial class MainViewModel : ObservableObject
 
     private async void OnCloseRequested(object? sender, EventArgs e)
     {
-        if (_isTransitioning || !IsViewerVisible)
+        if (_isTransitioning || !IsViewerVisible || IsUpdating)
         {
             return;
         }
 
         // 削除予約が残っていれば、離れてよいか確認する（キャンセルならビューアに留まる）
-        if (!ConfirmLeaveViewer())
+        var decision = DecideLeave();
+        if (decision == LeaveDecision.Stay)
         {
             return;
         }
@@ -101,9 +254,27 @@ public sealed partial class MainViewModel : ObservableObject
         _isTransitioning = true;
         try
         {
+            var updated = false;
+            if (decision == LeaveDecision.Update)
+            {
+                // 失敗・キャンセルなら、ビューアに留まる（元のアーカイブと削除予約を保持している）
+                if (!await UpdateArchiveAsync())
+                {
+                    return;
+                }
+
+                updated = true;
+            }
+
             // 画面は先に切り替え、最後に閲覧した位置の保存などの後片付けはあとから行う
             IsViewerVisible = false;
             await Viewer.CloseAsync();
+
+            if (updated)
+            {
+                // 内容が変わったアーカイブの表示と、サムネイルを更新する
+                await Library.OnArchiveChangedAsync();
+            }
         }
         catch (Exception ex)
         {
@@ -113,23 +284,6 @@ public sealed partial class MainViewModel : ObservableObject
         {
             _isTransitioning = false;
         }
-    }
-
-    /// <summary>
-    /// ビューアのアーカイブを離れてよいか確認する（ライブラリへ戻る場合、アプリを終了する場合）。
-    /// 削除予約がなければ確認せずに true。削除予約があれば、変更確認ダイアログ（DLG-01）を表示する。
-    /// 「変更を破棄」なら true（離れると削除予約は破棄され、ZIP本体は変更されない）、キャンセルなら false。
-    /// ZIPの再構築（「更新する」）はPhase 8で実装するまで選べない。
-    /// </summary>
-    public bool ConfirmLeaveViewer()
-    {
-        if (!IsViewerVisible || Viewer.PendingDeleteCount == 0)
-        {
-            return true;
-        }
-
-        var choice = _dialogs.ConfirmLeaveArchive(Viewer.ArchiveName, Viewer.PendingDeleteCount, canUpdate: false);
-        return choice == LeaveChoice.Discard;
     }
 
     private void OnViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -145,4 +299,7 @@ public sealed partial class MainViewModel : ObservableObject
 
     [LoggerMessage(Level = LogLevel.Error, Message = "ビューアを閉じる処理に失敗しました。")]
     private static partial void LogCloseFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "アーカイブの更新で想定外のエラーが起きました。")]
+    private static partial void LogUpdateFailed(ILogger logger, Exception exception);
 }

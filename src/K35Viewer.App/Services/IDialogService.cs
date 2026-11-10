@@ -24,8 +24,9 @@ public interface IDialogService
 
     /// <summary>
     /// 削除予約が残っているアーカイブを離れてよいか確認する(DLG-01、UC-11)。
-    /// <paramref name="canUpdate"/> が false の間は「更新する」を選べない（ZIPの再構築はPhase 8で実装する）。
+    /// <paramref name="updateUnavailableReason"/> が null でなければ「更新する」を選べず、その理由を表示する
+    /// （アーカイブが外部で変更された、ごみ箱を使えない保存先、など）。
     /// ダイアログを閉じた場合は <see cref="LeaveChoice.Cancel"/>。
     /// </summary>
-    LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, bool canUpdate);
+    LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, string? updateUnavailableReason);
 }

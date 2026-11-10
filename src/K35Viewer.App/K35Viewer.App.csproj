@@ -8,6 +8,8 @@
     <InvariantGlobalization>false</InvariantGlobalization>
     <RootNamespace>K35Viewer</RootNamespace>
     <AssemblyName>K35Viewer</AssemblyName>
+    <!-- P/Invoke（LibraryImport）の生成コードに必要 -->
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
 
   <ItemGroup>

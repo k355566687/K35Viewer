@@ -22,7 +22,7 @@ public class LibraryViewModelTests
             return confirmMerge;
         }
 
-        public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, bool canUpdate) => LeaveChoice.Cancel;
+        public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, string? updateUnavailableReason) => LeaveChoice.Cancel;
     }
 
     private static LibraryViewModel CreateViewModel(LibraryTestContext ctx, FakeDialogService? dialogs = null) =>
