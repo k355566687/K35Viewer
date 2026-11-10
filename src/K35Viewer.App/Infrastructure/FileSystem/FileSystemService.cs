@@ -85,6 +85,28 @@ public sealed class FileSystemService
     /// <summary>一時ファイルの拡張子（スキャンの対象外）。</summary>
     public const string TempFileSuffix = ".k35tmp";
 
+    /// <summary>
+    /// <see cref="CreateTempPath"/> で作った一時ファイルの名前から、元のファイル名を取り出す
+    /// （「〈元の名前〉.〈32桁のGUID〉.k35tmp」）。形式が違えば null。
+    /// </summary>
+    public static string? GetTempSourceName(string tempPath)
+    {
+        var name = Path.GetFileName(tempPath);
+        if (!name.EndsWith(TempFileSuffix, StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        var withoutSuffix = name[..^TempFileSuffix.Length];
+        var dot = withoutSuffix.LastIndexOf('.');
+        if (dot <= 0 || withoutSuffix.Length - dot - 1 != 32 || !Guid.TryParseExact(withoutSuffix[(dot + 1)..], "N", out _))
+        {
+            return null;
+        }
+
+        return withoutSuffix[..dot];
+    }
+
     /// <summary>ファイルを削除する。存在しない・削除できない場合は何もせず false（後始末用で、例外にしない）。</summary>
     public bool TryDelete(string path)
     {
@@ -159,6 +181,7 @@ public sealed class FileSystemService
         }
 
         var directories = new List<ScannedDirectory>();
+        var tempFiles = new List<ScannedTempFile>();
         var failedCount = 0;
         var queue = new Queue<(DirectoryInfo Directory, string? ParentFullPath)>();
         queue.Enqueue((root, null));
@@ -186,6 +209,10 @@ public sealed class FileSystemService
                     {
                         archives.Add(new ScannedArchive(file.Name, file.Length, ToUnixSeconds(file)));
                     }
+                    else if (entry is FileInfo temp && temp.Name.EndsWith(TempFileSuffix, StringComparison.OrdinalIgnoreCase))
+                    {
+                        tempFiles.Add(new ScannedTempFile(temp.FullName, temp.LastWriteTimeUtc));
+                    }
                 }
             }
             catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
@@ -199,7 +226,7 @@ public sealed class FileSystemService
             directories.Add(new ScannedDirectory(directory.FullName, parentFullPath, failed, archives));
         }
 
-        return new ScanTree(true, directories, failedCount);
+        return new ScanTree(true, directories, failedCount, tempFiles);
     }
 
     private static bool ShouldDescend(DirectoryInfo directory) =>

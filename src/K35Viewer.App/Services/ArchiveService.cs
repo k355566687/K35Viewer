@@ -92,6 +92,9 @@ public sealed partial class ArchiveService(
     private readonly Lock _gate = new();
     private readonly HashSet<long> _updating = [];
 
+    /// <summary>テスト用。ファイルの置き場所の空き容量を返す処理を差し替える（容量不足を再現するため）。</summary>
+    internal Func<string, long?>? FreeSpaceProvider { get; init; }
+
     /// <summary>テストで待ち時間を短くするための、置換の再試行の待ち時間。</summary>
     internal IReadOnlyList<TimeSpan> ReplaceDelays { get; init; } = ReplaceRetryDelays;
 
@@ -209,7 +212,7 @@ public sealed partial class ArchiveService(
                     Format($"「{request.ArchiveName}」を更新できません（{recycleReason}）。元のアーカイブは変更していません"));
             }
 
-            if (fileSystem.GetAvailableFreeSpace(request.FullPath) is { } free && free < state.FileSize + FreeSpaceMargin)
+            if ((FreeSpaceProvider ?? fileSystem.GetAvailableFreeSpace)(request.FullPath) is { } free && free < state.FileSize + FreeSpaceMargin)
             {
                 return Failed(
                     request,

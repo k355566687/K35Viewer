@@ -17,10 +17,14 @@ public sealed record ScannedDirectory(
 /// フォルダ列挙の結果。Directories は親が必ず子より前に並ぶ。
 /// RootAccessible が false の場合は登録フォルダ自体にアクセスできない(ネットワーク切断など)。
 /// </summary>
+/// <summary>列挙で見つかった、アプリが作る一時ファイル（〜.k35tmp）。異常終了などで残ったものの後始末に使う。</summary>
+public sealed record ScannedTempFile(string FullPath, DateTime LastWriteTimeUtc);
+
 public sealed record ScanTree(
     bool RootAccessible,
     IReadOnlyList<ScannedDirectory> Directories,
-    int FailedCount)
+    int FailedCount,
+    IReadOnlyList<ScannedTempFile>? TempFiles = null)
 {
     public static ScanTree Unavailable { get; } = new(false, [], 0);
 }

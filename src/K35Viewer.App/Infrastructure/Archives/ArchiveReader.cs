@@ -35,7 +35,7 @@ public sealed class ArchiveReader : IArchiveReader
 
         try
         {
-            using var zip = ZipFile.OpenRead(archivePath);
+            using var zip = OpenRead(archivePath);
 
             var images = new List<ZipArchiveEntry>();
             foreach (var entry in zip.Entries)
@@ -104,7 +104,7 @@ public sealed class ArchiveReader : IArchiveReader
                 FileShare.ReadWrite | FileShare.Delete,
                 bufferSize: 4096,
                 FileOptions.RandomAccess);
-            zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false);
+            zip = new ZipArchive(stream, ZipArchiveMode.Read, leaveOpen: false, ZipEntryNameEncoding.Instance);
 
             var images = new List<ZipArchiveEntry>();
             foreach (var entry in zip.Entries)
@@ -171,11 +171,18 @@ public sealed class ArchiveReader : IArchiveReader
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(entryName);
 
-        using var zip = ZipFile.OpenRead(archivePath);
+        using var zip = OpenRead(archivePath);
         var entry = zip.GetEntry(entryName)
             ?? throw new FileNotFoundException($"アーカイブ内にエントリがありません: {entryName}");
         return ReadEntryContent(entry, maxBytes, ct);
     }
+
+    /// <summary>
+    /// 読み取り用に開く。UTF-8 のフラグがないエントリ名は、UTF-8 として正しくなければ Shift_JIS として読む（<see cref="ZipEntryNameEncoding"/>）。
+    /// アプリの中でZIPを読むときは、必ずこれ（または同じ文字コードの指定）を使う。開き方によって名前が変わると、
+    /// 閲覧位置の記録や再構築の削除対象と一致しなくなるため。
+    /// </summary>
+    internal static ZipArchive OpenRead(string path) => ZipFile.Open(path, ZipArchiveMode.Read, ZipEntryNameEncoding.Instance);
 
     /// <summary>エントリの内容をメモリへ読み込む。宣言サイズと実際に読んだ量の両方で上限を守る。</summary>
     internal static byte[] ReadEntryContent(ZipArchiveEntry entry, long maxBytes, CancellationToken ct)

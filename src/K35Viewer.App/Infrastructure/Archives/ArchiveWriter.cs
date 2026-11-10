@@ -77,9 +77,9 @@ public sealed class ArchiveWriter(
             // 閲覧中のビューアなど、他の読み取りを妨げない共有モードで開く
             using var sourceStream = new FileStream(
                 sourcePath, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete, 4096, FileOptions.SequentialScan);
-            using var source = new ZipArchive(sourceStream, ZipArchiveMode.Read, leaveOpen: false);
+            using var source = new ZipArchive(sourceStream, ZipArchiveMode.Read, leaveOpen: false, ZipEntryNameEncoding.Instance);
 
-            // 名前を正しく読めていないアーカイブは、書き出すと名前を壊してしまうため扱わない
+            // 名前を正しく読めていないアーカイブ（UTF-8 でも Shift_JIS でもない）は、書き出すと名前を壊してしまうため扱わない
             if (source.Entries.Any(e => e.FullName.Contains('\uFFFD', StringComparison.Ordinal)))
             {
                 return ArchiveWriteResult.Failure(
@@ -131,7 +131,7 @@ public sealed class ArchiveWriter(
 
         try
         {
-            using var zip = ZipFile.OpenRead(path);
+            using var zip = ArchiveReader.OpenRead(path);
             if (zip.Entries.Count != expected.Count)
             {
                 return ArchiveWriteResult.Failure("VERIFY_FAILED", "作成したアーカイブのエントリ数が一致しません");

@@ -30,6 +30,12 @@ public sealed partial class ScanService(
     /// <summary>テスト用。管理フォルダを列挙したあと、DBへ反映する前に呼ばれる（その間のアプリ内操作を再現するため）。</summary>
     internal Action<LibraryFolder>? AfterEnumerate { get; set; }
 
+    /// <summary>
+    /// 残っている一時ファイル（〜.k35tmp）を片付けの対象にするまでの時間。これより新しいものは、
+    /// 実行中の更新・移動が使っている可能性があるため触れない。テストでは短くする。
+    /// </summary>
+    internal TimeSpan TempFileMinimumAge { get; set; } = TimeSpan.FromMinutes(10);
+
     /// <summary>指定した管理フォルダ1件をスキャンする(フォルダ追加直後の初回スキャン等)。</summary>
     public async Task<ScanSummary> ScanAsync(long libraryFolderId, ScanType scanType, CancellationToken ct = default)
     {
@@ -74,6 +80,7 @@ public sealed partial class ScanService(
 
             var totals = new Counts();
             var accessible = 0;
+            var leftovers = new List<string>();
             try
             {
                 foreach (var library in targets)
@@ -86,6 +93,7 @@ public sealed partial class ScanService(
                             ApplyAsync(connection, transaction, library, scanId, tree, token),
                         ct);
                     totals.Add(counts);
+                    leftovers.AddRange(CleanUpTempFiles(tree));
                     if (counts.RootAccessible)
                     {
                         accessible++;
@@ -122,6 +130,7 @@ public sealed partial class ScanService(
 
             await FinishAsync(scanType, summary, ErrorCodeOf(status), single?.Path);
             Notify(scanType, summary);
+            NotifyLeftovers(leftovers);
             LogCompleted(logger, summary.Status, summary.Added, summary.Changed, summary.Missing, summary.Failed);
             return summary;
         }
@@ -322,6 +331,55 @@ public sealed partial class ScanService(
             && state.LastWriteTime == scanned.LastWriteTime;
     }
 
+    /// <summary>
+    /// 前回の異常終了などで残った一時ファイル（〜.k35tmp）を片付ける。
+    /// 元のファイルが同じフォルダに残っていれば、一時ファイルは途中で止まった更新の作りかけなので削除する。
+    /// 元のファイルがない場合は、置き換えの途中で止まった更新後のファイルや、移動の途中のファイルの可能性があるため、
+    /// 削除せずに残し、その場所を返す（利用者に確認を求める）。新しすぎるもの（実行中の可能性があるもの）には触れない。
+    /// </summary>
+    private List<string> CleanUpTempFiles(ScanTree tree)
+    {
+        var kept = new List<string>();
+        var now = DateTime.UtcNow;
+        foreach (var temp in tree.TempFiles ?? [])
+        {
+            var sourceName = FileSystemService.GetTempSourceName(temp.FullPath);
+            if (sourceName is null || now - temp.LastWriteTimeUtc < TempFileMinimumAge)
+            {
+                continue;
+            }
+
+            var source = Path.Combine(Path.GetDirectoryName(temp.FullPath)!, sourceName);
+            if (fileSystem.TryGetFileState(source) is not null)
+            {
+                // 使用中などで削除できなければ、次の機会に回す
+                if (fileSystem.TryDelete(temp.FullPath))
+                {
+                    LogTempDeleted(logger, temp.FullPath);
+                }
+            }
+            else
+            {
+                LogTempKept(logger, temp.FullPath);
+                kept.Add(temp.FullPath);
+            }
+        }
+
+        return kept;
+    }
+
+    private void NotifyLeftovers(List<string> kept)
+    {
+        if (kept.Count == 0)
+        {
+            return;
+        }
+
+        var others = kept.Count > 1 ? Format($"（ほか{kept.Count - 1:N0}件）") : string.Empty;
+        notifications.ShowWarning(
+            Format($"アーカイブの更新または移動の途中で残ったファイルがあります: {kept[0]}{others}。内容を確認し、不要なら削除してください"));
+    }
+
     private static bool IsUnverified(string normalizedPath, List<string> unverifiedRoots) =>
         unverifiedRoots.Exists(root => PathNormalizer.IsSameOrDescendant(normalizedPath, root));
 
@@ -432,6 +490,12 @@ public sealed partial class ScanService(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "スキャンが終了しました。Status={Status} Added={Added} Changed={Changed} Missing={Missing} Failed={Failed}")]
     private static partial void LogCompleted(ILogger logger, OperationStatus status, int added, int changed, int missing, int failed);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "途中で止まった処理の一時ファイルを削除しました。Path={Path}")]
+    private static partial void LogTempDeleted(ILogger logger, string path);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "元のファイルが見つからないため、一時ファイルを削除せずに残しました。Path={Path}")]
+    private static partial void LogTempKept(ILogger logger, string path);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "スキャン中に予期しないエラーが発生しました。")]
     private static partial void LogFailed(ILogger logger, Exception exception);

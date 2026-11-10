@@ -1,4 +1,5 @@
 using System.Windows;
+using K35Viewer.Infrastructure;
 using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
@@ -17,15 +18,30 @@ namespace K35Viewer;
 public partial class App : Application
 {
     private IHost? _host;
+    private UnhandledExceptionReporter? _exceptionReporter;
+    private SingleInstanceGuard? _singleInstance;
 
     protected override async void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
 
+        // 二重に起動された場合は、すでに動いている方を前面に出して終了する
+        _singleInstance = SingleInstanceGuard.Acquire();
+        if (!_singleInstance.IsFirstInstance)
+        {
+            SingleInstanceGuard.ActivateExistingInstance();
+            Shutdown(0);
+            return;
+        }
+
         var paths = AppPaths.CreateDefault();
         paths.EnsureDirectories();
 
-        var builder = Host.CreateApplicationBuilder();
+        // 基準のフォルダは、起動したときのカレントフォルダではなく、実行ファイルの場所にする
+        var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
+        {
+            ContentRootPath = AppContext.BaseDirectory,
+        });
         builder.Services.AddSingleton(paths);
         builder.Logging.AddK35ViewerLogging(
             LoggingConfiguration.CreateLogger(paths, LoggingConfiguration.DefaultMinimumLevel));
@@ -54,6 +70,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IRecycleBinService, RecycleBinService>();
         builder.Services.AddSingleton<IExplorerLauncher, ExplorerLauncher>();
         builder.Services.AddSingleton<ArchiveService>();
+        builder.Services.AddSingleton<StartupMaintenance>();
         builder.Services.AddSingleton<ViewerService>();
         builder.Services.AddSingleton<ViewerImageDecoder>();
         builder.Services.AddSingleton<LibraryViewModel>();
@@ -67,6 +84,14 @@ public partial class App : Application
 
         var logger = _host.Services.GetRequiredService<ILogger<App>>();
         LogStarted(logger, paths.Root);
+
+        // 想定外の例外は、ログへ記録する。画面のスレッドの例外では、アプリを落とさずに知らせる
+        _exceptionReporter = new UnhandledExceptionReporter(
+            _host.Services.GetRequiredService<ILogger<UnhandledExceptionReporter>>(), paths.LogsDirectory)
+        {
+            ShowMessage = message => MessageBox.Show(message, "35Viewer", MessageBoxButton.OK, MessageBoxImage.Warning),
+        };
+        _exceptionReporter.Attach(Dispatcher);
 
         try
         {
@@ -84,7 +109,10 @@ public partial class App : Application
             return;
         }
 
+        // 前回の異常終了などで残った一時ファイルを片付ける（画面の表示を待たせない）
+        var maintenance = _host.Services.GetRequiredService<StartupMaintenance>();
         _host.Services.GetRequiredService<MainWindow>().Show();
+        _ = maintenance.RunAsync();
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "35Viewer started. DataRoot={Root}")]
@@ -95,11 +123,14 @@ public partial class App : Application
 
     protected override async void OnExit(ExitEventArgs e)
     {
+        _exceptionReporter?.Detach(Dispatcher);
         if (_host is not null)
         {
             await _host.StopAsync();
             _host.Dispose();
         }
+
+        _singleInstance?.Dispose();
 
         base.OnExit(e);
     }

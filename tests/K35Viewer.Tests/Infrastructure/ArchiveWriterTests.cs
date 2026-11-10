@@ -219,22 +219,95 @@ public class ArchiveWriterTests : IDisposable
         Assert.Equal(before, Hash(source));
     }
 
-    [Fact]
-    public void Rebuild_エントリ名を正しく読めないアーカイブは_名前を壊さないよう扱わない()
+    /// <summary>UTF-8 のフラグを付けずに、指定した文字コードでエントリ名を保存したZIPを作る（古いツールで作られたZIPを模す）。</summary>
+    private string CreateLegacyZip(string name, Encoding encoding, params string[] entryNames)
     {
-        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
-        var source = PathOf("cp932.zip");
-        using (var stream = File.Create(source))
-        using (var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false, Encoding.GetEncoding(932)))
+        var path = PathOf(name);
+        using var stream = File.Create(path);
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Create, leaveOpen: false, encoding);
+        foreach (var entryName in entryNames)
         {
-            using var output = zip.CreateEntry("ページ１.jpg").Open();
+            using var output = zip.CreateEntry(entryName).Open();
             output.Write(TestImages.Jpeg(50, 50));
         }
+
+        return path;
+    }
+
+    private static Encoding ShiftJis()
+    {
+        Encoding.RegisterProvider(CodePagesEncodingProvider.Instance);
+        return Encoding.GetEncoding(932);
+    }
+
+    [Fact]
+    public void Rebuild_ShiftJISのエントリ名のアーカイブも_名前を保って再構築でき_新しいZIPではUTF8で保存される()
+    {
+        var source = CreateLegacyZip("cp932.zip", ShiftJis(), "第1話/ページ１.jpg", "第1話/ページ２.jpg", "表紙.jpg");
+        var destination = PathOf("out.k35tmp");
+
+        var result = new ArchiveWriter().Rebuild(source, destination, new HashSet<string> { "第1話/ページ２.jpg" }, Ct);
+
+        Assert.True(result.Succeeded, result.ErrorMessage);
+        Assert.Equal(["第1話/ページ１.jpg", "表紙.jpg"], Read(destination).Select(e => e.Name));
+        Assert.True(new ArchiveWriter().Verify(destination, result.Entries!, Ct).Succeeded);
+
+        // 新しいZIPは UTF-8 のフラグ付きで保存され、文字コードを指定しない他のツールでも同じ名前に読める
+        using var plain = ZipFile.OpenRead(destination);
+        Assert.Equal(["第1話/ページ１.jpg", "表紙.jpg"], plain.Entries.Select(e => e.FullName));
+    }
+
+    [Fact]
+    public void Rebuild_UTF8でもShiftJISでも読めない名前のアーカイブは_名前を壊さないよう扱わない()
+    {
+        // 0x81 0x20: UTF-8 では不正、Shift_JIS では2バイト文字の1バイト目のあとに使えないバイトが続く（どちらでも読めない）
+        var source = CreateLegacyZip("broken-names.zip", Encoding.Latin1, "\u0081 .jpg");
 
         var result = new ArchiveWriter().Rebuild(source, PathOf("out.k35tmp"), new HashSet<string>(), Ct);
 
         Assert.False(result.Succeeded);
         Assert.Equal("UNSUPPORTED_ENTRY_NAME", result.ErrorCode);
+    }
+
+    [Fact]
+    public void ArchiveReader_ShiftJISのエントリ名を正しく読み_自然順に並べて画像を読み出せる()
+    {
+        var source = CreateLegacyZip("cp932.zip", ShiftJis(), "ページ10.jpg", "ページ2.jpg", "あとがき.jpg");
+        var reader = new ArchiveReader();
+
+        var analysis = reader.Analyze(source, Ct);
+        var opened = reader.Open(source, Ct);
+        using var archive = opened.Archive!;
+
+        Assert.Equal(K35Viewer.Domain.ArchiveAnalysisStatus.Ready, analysis.Status);
+        Assert.Equal(3, analysis.ImageCount);
+        Assert.Equal(["あとがき.jpg", "ページ2.jpg", "ページ10.jpg"], archive.Images.Select(i => i.FullName));
+        Assert.NotEmpty(archive.ReadEntry("ページ2.jpg", 1_000_000, Ct));
+        Assert.NotEmpty(reader.ReadEntry(source, "あとがき.jpg", 1_000_000, Ct));
+        Assert.Equal(analysis.CoverCandidates[0], archive.Images[0].FullName); // 解析と閲覧で名前が一致する
+    }
+
+    [Theory]
+    [InlineData("plain-ascii.jpg")]
+    [InlineData("日本語.jpg")]
+    [InlineData("한국어.png")]
+    public void ZipEntryNameEncoding_UTF8として正しい名前は_UTF8のまま読む(string name)
+    {
+        var bytes = Encoding.UTF8.GetBytes(name);
+
+        Assert.Equal(name, ZipEntryNameEncoding.Instance.GetString(bytes));
+        Assert.Equal(name.Length, ZipEntryNameEncoding.Instance.GetCharCount(bytes, 0, bytes.Length));
+    }
+
+    [Fact]
+    public void ZipEntryNameEncoding_UTF8として不正な名前は_ShiftJISとして読む()
+    {
+        var bytes = ShiftJis().GetBytes("漫画/第１巻.jpg");
+
+        Assert.Equal("漫画/第１巻.jpg", ZipEntryNameEncoding.Instance.GetString(bytes));
+        var chars = new char[ZipEntryNameEncoding.Instance.GetMaxCharCount(bytes.Length)];
+        var count = ZipEntryNameEncoding.Instance.GetChars(bytes, 0, bytes.Length, chars, 0);
+        Assert.Equal("漫画/第１巻.jpg", new string(chars, 0, count));
     }
 
     [Fact]

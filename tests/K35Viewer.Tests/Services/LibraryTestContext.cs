@@ -245,12 +245,14 @@ internal sealed class LibraryTestContext : IDisposable
     /// 置き換えの再試行の待ち時間は、テストを速くするため短くする。
     /// </summary>
     public ArchiveService CreateArchiveService(
-        IArchiveWriter? writer = null, IRecycleBinService? recycleBin = null, IReadOnlyList<TimeSpan>? replaceDelays = null, bool alwaysCopyOnMove = false) =>
+        IArchiveWriter? writer = null, IRecycleBinService? recycleBin = null, IReadOnlyList<TimeSpan>? replaceDelays = null, bool alwaysCopyOnMove = false,
+        Func<string, long?>? freeSpace = null) =>
         new(writer ?? new ArchiveWriter(), recycleBin ?? RecycleBin, _fileSystem, ArchiveRepository, _thumbnailRepository,
             _history, _libraries, Cache, Explorer, _writer, Notifications, NullLogger<ArchiveService>.Instance)
         {
             ReplaceDelays = replaceDelays ?? [TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1)],
             AlwaysCopyOnMove = alwaysCopyOnMove,
+            FreeSpaceProvider = freeSpace,
         };
 
     public ThumbnailImageLoader ImageLoader { get; }
