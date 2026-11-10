@@ -41,10 +41,30 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
 {
     private ArchiveSummary _summary = summary;
     private bool _awaitingThumbnail;
+    private bool _isSelected;
 
     public long Id => _summary.Id;
 
     public string FileName => _summary.FileName;
+
+    /// <summary>アーカイブのフルパス（保存場所とファイル名）。</summary>
+    public string FullPath => _summary.FullPath;
+
+    /// <summary>選択されているか。サムネイル表示で、選択を示す枠と背景に使う。詳細表示の選択は、一覧の選択と同期する。</summary>
+    public bool IsSelected
+    {
+        get => _isSelected;
+        set
+        {
+            if (SetProperty(ref _isSelected, value))
+            {
+                OnPropertyChanged(nameof(StatusText));
+            }
+        }
+    }
+
+    /// <summary>スクリーンリーダー等に伝える状態。色だけに頼らない。</summary>
+    public string StatusText => _isSelected ? "選択中" : string.Empty;
 
     /// <summary>保存場所(アーカイブを格納しているフォルダ)。</summary>
     public string Location => _summary.FolderPath;

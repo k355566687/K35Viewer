@@ -70,6 +70,7 @@ public sealed record PagedResult<T>(IReadOnlyList<T> Items, int TotalCount);
 /// <summary>フォルダツリーの1ノード。登録フォルダ(IsLibraryRoot)はツリーの起点。</summary>
 public sealed record FolderNode(
     long Id,
+    long LibraryFolderId,
     string Name,
     string FullPath,
     bool IsLibraryRoot,

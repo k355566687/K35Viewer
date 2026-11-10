@@ -23,6 +23,16 @@ public class LibraryViewModelTests
         }
 
         public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, string? updateUnavailableReason) => LeaveChoice.Cancel;
+
+        public string? PromptRename(string currentFileName, Func<string, string?> validate) => null;
+
+        public string? PickMoveDestination(string initialDirectory) => null;
+
+        public bool ConfirmDeleteArchive(string fileName) => false;
+
+        public bool ConfirmPermanentDelete(string fileName, string reason) => false;
+
+        public bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount) => false;
     }
 
     private static LibraryViewModel CreateViewModel(LibraryTestContext ctx, FakeDialogService? dialogs = null) =>
@@ -32,6 +42,7 @@ public class LibraryViewModelTests
             ctx.Thumbnails,
             ctx.ImageLoader,
             dialogs ?? new FakeDialogService(null, confirmMerge: true),
+            ctx.Archives,
             NullLogger<LibraryViewModel>.Instance);
 
     private static async Task WaitUntilAsync(Func<bool> condition)

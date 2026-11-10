@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using K35Viewer.Domain;
@@ -13,7 +14,8 @@ public sealed record SortOption(ArchiveSortKey Key, string Label);
 
 /// <summary>
 /// ライブラリ画面のViewModel(SCR-01)。フォルダツリー、アーカイブ一覧(詳細 / サムネイル表示)、検索・ソート、
-/// 管理フォルダの追加、再スキャン、起動時の更新チェック、サムネイルの生成を扱う。
+/// 管理フォルダの追加・解除、再スキャン、起動時の更新チェック、サムネイルの生成、選択したアーカイブへの操作
+/// （開く、名前変更、移動、削除、エクスプローラーで表示）を扱う。
 /// 一覧はSQLiteの検索結果とサムネイルキャッシュだけで表示し、ZIP本体は開かない。
 /// </summary>
 public sealed partial class LibraryViewModel(
@@ -22,6 +24,7 @@ public sealed partial class LibraryViewModel(
     ThumbnailService thumbnails,
     ThumbnailImageLoader imageLoader,
     IDialogService dialogs,
+    ArchiveService archives,
     ILogger<LibraryViewModel> logger) : ObservableObject, IDisposable
 {
     /// <summary>サムネイル表示の1枚の幅(余白を含む)。この幅で1行に並べる枚数を決める。</summary>
@@ -48,8 +51,18 @@ public sealed partial class LibraryViewModel(
     private bool _thumbnailLoopRunning;
     private bool _thumbnailRerun;
     private long? _selectedFolderId;
+    private long? _selectAfterReloadId;
+    private long? _selectFallbackId;
+
+    /// <summary>サムネイル表示の1行分を何行ぶんずつ移動するか（PageUp / PageDown）。</summary>
+    public const int PageStepRows = 3;
 
     public IReadOnlyList<SortOption> SortOptions => AllSortOptions;
+
+    /// <summary>
+    /// サムネイル表示で、指定した行（0始まり）を画面に表示してほしい。キーで選択が動いたときに発行する。
+    /// </summary>
+    public event EventHandler<int>? ScrollToRowRequested;
 
     /// <summary>左ナビゲーションのツリー。先頭は「すべて」、続いて登録フォルダ。</summary>
     [ObservableProperty]
@@ -62,6 +75,33 @@ public sealed partial class LibraryViewModel(
     /// <summary>サムネイル表示用に、一覧を1行ぶんずつにまとめたもの。サムネイル表示のときだけ作る。</summary>
     [ObservableProperty]
     private IReadOnlyList<ThumbnailRow> _thumbnailRows = [];
+
+    /// <summary>
+    /// 選択中のアーカイブ。詳細表示・サムネイル表示で共通（1件だけ選択する）。開く・名前変更・移動・削除・
+    /// エクスプローラーで表示の対象になる。
+    /// </summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(OpenSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RenameSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MoveSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowSelectedInExplorerCommand))]
+    private ArchiveListItem? _selectedArchive;
+
+    /// <summary>ツリーで選択中の項目。管理フォルダ自身が選ばれているときだけ、「管理対象から外す」ができる。</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
+    private FolderTreeItem? _selectedFolder;
+
+    /// <summary>名前変更・移動・削除などの操作を実行中か。実行中は、重ねて操作できない。</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(OpenSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RenameSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(MoveSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ShowSelectedInExplorerCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
+    private bool _isOperating;
 
     [ObservableProperty]
     private string _searchText = string.Empty;
@@ -97,6 +137,7 @@ public sealed partial class LibraryViewModel(
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RescanCommand))]
+    [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
     private bool _isScanning;
 
     /// <summary>サムネイルを作成中かどうか。</summary>
@@ -170,6 +211,7 @@ public sealed partial class LibraryViewModel(
     {
         ArgumentNullException.ThrowIfNull(item);
 
+        SelectedFolder = item;
         if (item.Id == _selectedFolderId)
         {
             return;
@@ -244,6 +286,260 @@ public sealed partial class LibraryViewModel(
     private Task RescanAsync() => RunScanAsync(ct => scan.ScanAllAsync(ScanType.Manual, ct));
 
     private bool CanRescan() => HasFolders && !IsScanning;
+
+    // ---- 選択したアーカイブへの操作（UC-12〜15） ----
+
+    private bool CanOperateOnSelection() => SelectedArchive is not null && !IsOperating;
+
+    /// <summary>選択中のアーカイブを開く（Enter）。</summary>
+    [RelayCommand(CanExecute = nameof(CanOperateOnSelection))]
+    private void OpenSelected() => OpenArchive(SelectedArchive);
+
+    /// <summary>選択中のアーカイブの名前を変更する（F2、UC-12）。</summary>
+    [RelayCommand(CanExecute = nameof(CanOperateOnSelection))]
+    private Task RenameSelectedAsync() => RunOperationAsync(async () =>
+    {
+        var item = SelectedArchive!;
+        var newName = dialogs.PromptRename(item.FileName, text => archives.GetRenameError(item.Location, item.FileName, text));
+        if (newName is null)
+        {
+            return false;
+        }
+
+        _selectAfterReloadId = item.Id;
+        var result = await archives.RenameAsync(item.Id, newName, _cts.Token);
+        return result.Status == OperationStatus.Success;
+    });
+
+    /// <summary>選択中のアーカイブを別のフォルダへ移動する（UC-13）。</summary>
+    [RelayCommand(CanExecute = nameof(CanOperateOnSelection))]
+    private Task MoveSelectedAsync() => RunOperationAsync(async () =>
+    {
+        var item = SelectedArchive!;
+        var destination = dialogs.PickMoveDestination(item.Location);
+        if (destination is null)
+        {
+            return false;
+        }
+
+        _selectAfterReloadId = item.Id;
+        _selectFallbackId = NeighborId(item);
+        var result = await archives.MoveAsync(item.Id, destination, _cts.Token);
+        return result.Status is OperationStatus.Success or OperationStatus.Partial;
+    });
+
+    /// <summary>
+    /// 選択中のアーカイブを削除する（Delete、UC-14）。通常は確認のうえ、ごみ箱へ移動する。
+    /// ごみ箱を使えない保存先では、元に戻せないことを示して確認し、承認された場合だけ完全に削除する。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanOperateOnSelection))]
+    private Task DeleteSelectedAsync() => RunOperationAsync(async () =>
+    {
+        var item = SelectedArchive!;
+        var blocked = archives.GetRecycleBlockReason(item.FullPath);
+        var confirmed = blocked is null
+            ? dialogs.ConfirmDeleteArchive(item.FileName)
+            : dialogs.ConfirmPermanentDelete(item.FileName, blocked);
+        if (!confirmed)
+        {
+            return false;
+        }
+
+        _selectAfterReloadId = item.Id;
+        _selectFallbackId = NeighborId(item);
+        var result = await archives.DeleteAsync(item.Id, permanent: blocked is not null, _cts.Token);
+        return result.Status is OperationStatus.Success or OperationStatus.Partial;
+    });
+
+    /// <summary>選択中のアーカイブを、エクスプローラーで選択した状態で表示する（UC-15）。</summary>
+    [RelayCommand(CanExecute = nameof(CanOperateOnSelection))]
+    private Task ShowSelectedInExplorerAsync() => RunOperationAsync(async () =>
+    {
+        _ = await archives.ShowInExplorerAsync(SelectedArchive!.Id, _cts.Token);
+        return false;
+    });
+
+    private bool CanRemoveSelectedFolder() => SelectedFolder is { IsLibraryRoot: true } && !IsScanning && !IsOperating;
+
+    /// <summary>
+    /// 選択中の管理フォルダを管理対象から外す（UC-18）。ファイルは削除しない。スキャン中は実行できない。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRemoveSelectedFolder))]
+    private Task RemoveSelectedFolderAsync() => RunOperationAsync(async () =>
+    {
+        if (SelectedFolder is not { LibraryFolderId: { } libraryFolderId, FullPath: { } path })
+        {
+            return false;
+        }
+
+        var count = await library.GetArchiveCountAsync(libraryFolderId, _cts.Token) ?? 0;
+        if (!dialogs.ConfirmRemoveLibraryFolder(path, count))
+        {
+            return false;
+        }
+
+        var result = await library.RemoveFolderAsync(libraryFolderId, _cts.Token);
+        return result.Status == OperationStatus.Success;
+    });
+
+    /// <summary>
+    /// 操作を実行する。実行中は重ねて実行できない。操作が成功した場合（<paramref name="operation"/> が true を返した場合）は、
+    /// 一覧とフォルダツリーを読み込み直す。
+    /// </summary>
+    private async Task RunOperationAsync(Func<Task<bool>> operation)
+    {
+        if (IsOperating)
+        {
+            return;
+        }
+
+        IsOperating = true;
+        try
+        {
+            if (await operation())
+            {
+                await ReloadAsync();
+                StartThumbnailProcessing();
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // アプリ終了中
+        }
+        catch (Exception ex)
+        {
+            LogOperationFailed(logger, ex);
+        }
+        finally
+        {
+            _selectAfterReloadId = null;
+            _selectFallbackId = null;
+            IsOperating = false;
+        }
+    }
+
+    /// <summary>削除・移動で一覧から消える項目の、次に選ぶ項目（後ろ、なければ前）。</summary>
+    private long? NeighborId(ArchiveListItem item)
+    {
+        var index = Archives.ToList().FindIndex(a => a.Id == item.Id);
+        if (index < 0)
+        {
+            return null;
+        }
+
+        return index + 1 < Archives.Count ? Archives[index + 1].Id : index > 0 ? Archives[index - 1].Id : null;
+    }
+
+    // ---- 画面からの入力 ----
+
+    /// <summary>サムネイルのカードがクリックされたときにViewから呼ばれる。選択し、ダブルクリックなら開く。</summary>
+    public void OnThumbnailClicked(ArchiveListItem item, int clickCount)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        SelectedArchive = item;
+        if (clickCount >= 2)
+        {
+            OpenArchive(item);
+        }
+    }
+
+    /// <summary>一覧の項目が右クリックされたときにViewから呼ばれる。メニューを開く前に、その項目を選択する。</summary>
+    public void OnArchiveRightClicked(ArchiveListItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        SelectedArchive = item;
+    }
+
+    /// <summary>
+    /// 一覧でのキー操作を処理する。処理した場合は true。
+    /// 共通: Enter で開く、F2 で名前変更、Delete で削除。
+    /// サムネイル表示: 矢印キーで選択を移動（上下は1行分）、PageUp / PageDown で3行分、Home / End で先頭 / 末尾。
+    /// （詳細表示の矢印キーによる選択は、一覧自体が処理する。）
+    /// </summary>
+    public bool HandleKey(Key key, ModifierKeys modifiers)
+    {
+        if (modifiers.HasFlag(ModifierKeys.Control) || modifiers.HasFlag(ModifierKeys.Alt))
+        {
+            return false;
+        }
+
+        switch (key)
+        {
+            case Key.Enter when SelectedArchive is not null:
+                OpenSelectedCommand.Execute(null);
+                return true;
+            case Key.F2 when SelectedArchive is not null:
+                RenameSelectedCommand.Execute(null);
+                return true;
+            case Key.Delete when SelectedArchive is not null:
+                DeleteSelectedCommand.Execute(null);
+                return true;
+        }
+
+        if (!IsThumbnailView || Archives.Count == 0)
+        {
+            return false;
+        }
+
+        var columns = Math.Max(1, ColumnCount);
+        switch (key)
+        {
+            case Key.Right:
+                MoveSelection(1);
+                return true;
+            case Key.Left:
+                MoveSelection(-1);
+                return true;
+            case Key.Down:
+                MoveSelection(columns);
+                return true;
+            case Key.Up:
+                MoveSelection(-columns);
+                return true;
+            case Key.PageDown:
+                MoveSelection(columns * PageStepRows);
+                return true;
+            case Key.PageUp:
+                MoveSelection(-columns * PageStepRows);
+                return true;
+            case Key.Home:
+                SelectIndex(0);
+                return true;
+            case Key.End:
+                SelectIndex(Archives.Count - 1);
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    // 何も選ばれていなければ、移動の向きに応じて先頭または末尾を選ぶ
+    private void MoveSelection(int delta)
+    {
+        var current = SelectedArchive is { } selected ? Archives.ToList().FindIndex(a => a.Id == selected.Id) : -1;
+        SelectIndex(current < 0 ? (delta > 0 ? 0 : Archives.Count - 1) : Math.Clamp(current + delta, 0, Archives.Count - 1));
+    }
+
+    private void SelectIndex(int index)
+    {
+        SelectedArchive = Archives[index];
+        ScrollToRowRequested?.Invoke(this, index / Math.Max(1, ColumnCount));
+    }
+
+    partial void OnSelectedArchiveChanged(ArchiveListItem? oldValue, ArchiveListItem? newValue)
+    {
+        if (oldValue is not null)
+        {
+            oldValue.IsSelected = false;
+        }
+
+        if (newValue is not null)
+        {
+            newValue.IsSelected = true;
+        }
+    }
 
     public void Dispose()
     {
@@ -333,6 +629,7 @@ public sealed partial class LibraryViewModel(
         }
 
         target.IsSelected = true;
+        SelectedFolder = target;
         HasFolders = nodes.Count > 0;
         FolderRoots = roots;
     }
@@ -370,6 +667,16 @@ public sealed partial class LibraryViewModel(
             var items = result.Items.Select(item => new ArchiveListItem(item, imageLoader)).ToList();
             _itemsById = items.ToDictionary(item => item.Id);
             Archives = items;
+
+            // 取得し直しても、選択を維持する（操作の直後は、操作の対象や、次の項目を選ぶ）
+            // 操作した項目が一覧にあればそれを、なければ（削除した、別のフォルダへ移したなど）次の項目を選ぶ
+            var keepId = _selectAfterReloadId ?? SelectedArchive?.Id;
+            var fallbackId = _selectFallbackId;
+            _selectAfterReloadId = null;
+            _selectFallbackId = null;
+            SelectedArchive = keepId is { } id && _itemsById.TryGetValue(id, out var kept) ? kept
+                : fallbackId is { } next && _itemsById.TryGetValue(next, out var neighbor) ? neighbor
+                : null;
             TotalCount = result.TotalCount;
             CountText = string.Create(CultureInfo.CurrentCulture, $"{result.TotalCount:N0} 件");
             _hasLoadedArchives = true;
@@ -506,6 +813,9 @@ public sealed partial class LibraryViewModel(
 
     [LoggerMessage(Level = LogLevel.Error, Message = "アーカイブ一覧の取得に失敗しました。")]
     private static partial void LogQueryFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "アーカイブまたは管理フォルダに対する操作で、想定外のエラーが起きました。")]
+    private static partial void LogOperationFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "管理フォルダの追加に失敗しました。Path={Path}")]
     private static partial void LogAddFailed(ILogger logger, Exception exception, string path);

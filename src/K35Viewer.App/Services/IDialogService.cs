@@ -29,4 +29,25 @@ public interface IDialogService
     /// ダイアログを閉じた場合は <see cref="LeaveChoice.Cancel"/>。
     /// </summary>
     LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, string? updateUnavailableReason);
+
+    /// <summary>
+    /// 新しいファイル名の入力を求める（UC-12）。<paramref name="validate"/> は入力が不正なときにその説明を返し（有効なら null）、
+    /// ダイアログは説明を表示して閉じない。キャンセルされた場合は null。
+    /// </summary>
+    string? PromptRename(string currentFileName, Func<string, string?> validate);
+
+    /// <summary>移動先のフォルダを選ぶ（UC-13）。キャンセルされた場合は null。</summary>
+    string? PickMoveDestination(string initialDirectory);
+
+    /// <summary>アーカイブの削除を確認する（DLG-02）。ファイルはWindowsのごみ箱へ移動する。</summary>
+    bool ConfirmDeleteArchive(string fileName);
+
+    /// <summary>
+    /// ごみ箱へ移動できない保存先のアーカイブを、完全に削除してよいか確認する（UC-14の異常フロー）。
+    /// 元に戻せないことを明示し、既定の選択はキャンセル。
+    /// </summary>
+    bool ConfirmPermanentDelete(string fileName, string reason);
+
+    /// <summary>管理フォルダを管理対象から外すことを確認する（DLG-03）。ファイル自体は削除されない。</summary>
+    bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount);
 }

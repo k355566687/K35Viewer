@@ -3,6 +3,7 @@ using K35Viewer.Domain;
 using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
+using K35Viewer.Infrastructure.Thumbnails;
 using Microsoft.Extensions.Logging;
 
 namespace K35Viewer.Services;
@@ -75,6 +76,9 @@ public sealed partial class ArchiveService(
     ArchiveRepository archives,
     ThumbnailRepository thumbnails,
     HistoryRepository history,
+    LibraryRepository libraries,
+    ThumbnailCacheStore thumbnailCache,
+    IExplorerLauncher explorer,
     DatabaseWriter databaseWriter,
     INotificationService notifications,
     ILogger<ArchiveService> logger)

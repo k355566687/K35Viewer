@@ -64,7 +64,8 @@ public sealed class LibraryRepository(SqliteConnectionFactory connectionFactory)
             connection,
             null,
             """
-            SELECT f.id, f.parent_folder_id, f.name, f.full_path, f.availability_status, lf.availability_status
+            SELECT f.id, f.parent_folder_id, f.name, f.full_path, f.availability_status, lf.availability_status,
+                   f.library_folder_id
               FROM folders f
               JOIN library_folders lf ON f.library_folder_id = lf.id
             """);
@@ -79,13 +80,57 @@ public sealed class LibraryRepository(SqliteConnectionFactory connectionFactory)
                 reader.GetString(2),
                 reader.GetString(3),
                 reader.GetString(4),
-                reader.GetString(5)));
+                reader.GetString(5),
+                reader.GetInt64(6)));
         }
 
         return result;
     }
 
     // ---- トランザクション内の読み取り・書き込み ----
+
+    /// <summary>登録フォルダ配下のサムネイル画像ファイルの相対パス（管理対象から外すときに、ファイル実体を削除するため）。</summary>
+    public async Task<IReadOnlyList<string>> GetThumbnailPathsAsync(
+        SqliteConnection connection, SqliteTransaction? transaction, long libraryFolderId, CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            SELECT t.relative_path
+              FROM thumbnail_cache t
+              JOIN archives a ON t.archive_id = a.id
+              JOIN folders f ON a.folder_id = f.id
+             WHERE f.library_folder_id = $id AND t.relative_path IS NOT NULL
+            """,
+            ("$id", libraryFolderId));
+        await using var reader = await command.ExecuteReaderAsync(ct);
+
+        var result = new List<string>();
+        while (await reader.ReadAsync(ct))
+        {
+            result.Add(reader.GetString(0));
+        }
+
+        return result;
+    }
+
+    /// <summary>登録フォルダ配下のアーカイブの件数（不在のものを含む）。</summary>
+    public async Task<int> CountArchivesAsync(
+        SqliteConnection connection, SqliteTransaction? transaction, long libraryFolderId, CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            SELECT COUNT(*)
+              FROM archives a
+              JOIN folders f ON a.folder_id = f.id
+             WHERE f.library_folder_id = $id
+            """,
+            ("$id", libraryFolderId));
+        return (int)(long)(await command.ExecuteScalarAsync(ct))!;
+    }
 
     public async Task<IReadOnlyList<LibraryFolder>> GetLibraryFoldersAsync(
         SqliteConnection connection, SqliteTransaction? transaction, CancellationToken ct)
@@ -355,4 +400,5 @@ public sealed record FolderTreeRow(
     string Name,
     string FullPath,
     string FolderAvailability,
-    string LibraryAvailability);
+    string LibraryAvailability,
+    long LibraryFolderId);

@@ -453,7 +453,8 @@ public class ArchiveServiceTests
                 Directory.Delete(path);
             });
         };
-        var service = ctx.CreateArchiveService(replaceDelays: [TimeSpan.FromMilliseconds(100), TimeSpan.FromMilliseconds(100)]);
+        // 塞ぎを外すのは約30ms後。負荷が高くても間に合うよう、再試行の待ち時間には余裕を持たせる
+        var service = ctx.CreateArchiveService(replaceDelays: [TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(3)]);
 
         var result = await service.ApplyDeletionsAsync(request, ct: Ct);
 

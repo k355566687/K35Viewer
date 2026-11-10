@@ -307,6 +307,70 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>名前変更を反映する（Archive IDは維持する）。サイズ・更新日時は名前の変更では変わらない。</summary>
+    public async Task RenameAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long id,
+        string fileName,
+        string extension,
+        long now,
+        CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            "UPDATE archives SET file_name = $name, extension = $ext, updated_at = $now WHERE id = $id",
+            ("$id", id),
+            ("$name", fileName),
+            ("$ext", extension),
+            ("$now", now));
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    /// 別のフォルダへの移動を反映する（Archive IDとサムネイルは維持する）。
+    /// 移動によってファイルの状態（サイズ・更新日時）が変わった場合だけ、その値に更新し、解析待ちに戻す。
+    /// </summary>
+    public async Task MoveAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long id,
+        long folderId,
+        (long FileSize, long LastWriteTime)? changedState,
+        long now,
+        CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            UPDATE archives
+               SET folder_id = $folder,
+                   file_size = COALESCE($size, file_size),
+                   last_write_time = COALESCE($mtime, last_write_time),
+                   analysis_status = CASE WHEN $size IS NULL THEN analysis_status ELSE 'PENDING' END,
+                   availability_status = 'AVAILABLE',
+                   updated_at = $now
+             WHERE id = $id
+            """,
+            ("$id", id),
+            ("$folder", folderId),
+            ("$size", changedState?.FileSize),
+            ("$mtime", changedState?.LastWriteTime),
+            ("$now", now));
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>アーカイブの登録を削除する（サムネイル管理行はCASCADEで削除され、操作履歴の archive_id はNULLになる）。</summary>
+    public async Task DeleteAsync(
+        SqliteConnection connection, SqliteTransaction transaction, long id, CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection, transaction, "DELETE FROM archives WHERE id = $id", ("$id", id));
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     /// <summary>LIKEのワイルドカード(% _)とエスケープ文字を、文字そのものとして扱えるようにする。</summary>
     internal static string EscapeLike(string term) =>
         term.Replace("\\", "\\\\", StringComparison.Ordinal)

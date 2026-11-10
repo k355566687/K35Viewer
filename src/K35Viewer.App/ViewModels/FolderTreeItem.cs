@@ -8,14 +8,30 @@ namespace K35Viewer.ViewModels;
 /// </summary>
 public sealed partial class FolderTreeItem : ObservableObject
 {
-    private FolderTreeItem(long? id, string header, IReadOnlyList<FolderTreeItem> children)
+    private FolderTreeItem(
+        long? id,
+        string header,
+        IReadOnlyList<FolderTreeItem> children,
+        long? libraryFolderId = null,
+        string? fullPath = null)
     {
         Id = id;
         Header = header;
         Children = children;
+        LibraryFolderId = libraryFolderId;
+        FullPath = fullPath;
     }
 
     public long? Id { get; }
+
+    /// <summary>管理フォルダ（登録フォルダ）自身の場合は、その登録の ID。サブフォルダと「すべて」は null。</summary>
+    public long? LibraryFolderId { get; }
+
+    /// <summary>フォルダのフルパス。「すべて」は null。</summary>
+    public string? FullPath { get; }
+
+    /// <summary>管理フォルダ（登録フォルダ）自身か。「管理対象から外す」ができるのは、これだけ。</summary>
+    public bool IsLibraryRoot => LibraryFolderId is not null;
 
     public string Header { get; }
 
@@ -34,7 +50,12 @@ public sealed partial class FolderTreeItem : ObservableObject
         ArgumentNullException.ThrowIfNull(node);
 
         var header = node.IsUnavailable ? node.Name + "(接続なし)" : node.Name;
-        return new FolderTreeItem(node.Id, header, node.Children.Select(From).ToList());
+        return new FolderTreeItem(
+            node.Id,
+            header,
+            node.Children.Select(From).ToList(),
+            node.IsLibraryRoot ? node.LibraryFolderId : null,
+            node.FullPath);
     }
 
     /// <summary>自身と配下から、指定したIDの項目を探す。</summary>

@@ -27,6 +27,9 @@ public sealed partial class ScanService(
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    /// <summary>テスト用。管理フォルダを列挙したあと、DBへ反映する前に呼ばれる（その間のアプリ内操作を再現するため）。</summary>
+    internal Action<LibraryFolder>? AfterEnumerate { get; set; }
+
     /// <summary>指定した管理フォルダ1件をスキャンする(フォルダ追加直後の初回スキャン等)。</summary>
     public async Task<ScanSummary> ScanAsync(long libraryFolderId, ScanType scanType, CancellationToken ct = default)
     {
@@ -77,6 +80,7 @@ public sealed partial class ScanService(
                 {
                     ct.ThrowIfCancellationRequested();
                     var tree = await Task.Run(() => fileSystem.ScanDirectoryTree(library.Path, ct), ct);
+                    AfterEnumerate?.Invoke(library);
                     var counts = await writer.ExecuteAsync(
                         (connection, transaction, token) =>
                             ApplyAsync(connection, transaction, library, scanId, tree, token),
@@ -150,6 +154,7 @@ public sealed partial class ScanService(
         var knownFolders = await libraries.GetFoldersAsync(connection, transaction, library.Id, ct);
         var folderIdByPath = knownFolders.ToDictionary(f => f.NormalizedPath, f => f.Id, StringComparer.Ordinal);
         var folderPathById = knownFolders.ToDictionary(f => f.Id, f => f.NormalizedPath);
+        var folderFullPathById = knownFolders.ToDictionary(f => f.Id, f => f.FullPath);
         var knownArchives = await archives.GetByLibraryAsync(connection, transaction, library.Id, ct);
         var archiveByKey = knownArchives.ToDictionary(a => (a.FolderId, Key(a.FileName)));
 
@@ -238,6 +243,13 @@ public sealed partial class ScanService(
             if (seenArchiveIds.Contains(record.Id)
                 || string.Equals(record.AvailabilityStatus, "MISSING", StringComparison.Ordinal)
                 || IsUnverified(folderPathById[record.FolderId], unverifiedRoots))
+            {
+                continue;
+            }
+
+            // 列挙のあとに、アプリ内の操作（名前変更・移動）でDBの記録が変わっていれば、記録どおりの場所にファイルがある。
+            // 古い列挙結果で「不在」にしない（アプリ内の操作の結果を優先する。内部アーキテクチャ設計書 13.3）
+            if (fileSystem.TryGetFileState(Path.Combine(folderFullPathById[record.FolderId], record.FileName)) is not null)
             {
                 continue;
             }

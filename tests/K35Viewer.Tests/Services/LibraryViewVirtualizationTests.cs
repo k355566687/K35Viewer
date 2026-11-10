@@ -22,6 +22,16 @@ public class LibraryViewVirtualizationTests
         public bool ConfirmMerge(string parentPath, IReadOnlyList<string> childPaths) => false;
 
         public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, string? updateUnavailableReason) => LeaveChoice.Cancel;
+
+        public string? PromptRename(string currentFileName, Func<string, string?> validate) => null;
+
+        public string? PickMoveDestination(string initialDirectory) => null;
+
+        public bool ConfirmDeleteArchive(string fileName) => false;
+
+        public bool ConfirmPermanentDelete(string fileName, string reason) => false;
+
+        public bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount) => false;
     }
 
     private static void RunOnStaThread(Action action) => WpfTestHelper.RunOnStaThread(action);
@@ -35,7 +45,7 @@ public class LibraryViewVirtualizationTests
         using var ctx = new LibraryTestContext();
         await ctx.InitializeAsync();
         using var viewModel = new LibraryViewModel(
-            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, new NoDialogs(), NullLogger<LibraryViewModel>.Instance);
+            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, new NoDialogs(), ctx.Archives, NullLogger<LibraryViewModel>.Instance);
         await viewModel.InitializeAsync(); // 画面表示時の初期化を済ませ、後から一覧が上書きされないようにする
 
         var items = Enumerable.Range(0, 10_000)
@@ -85,7 +95,7 @@ public class LibraryViewVirtualizationTests
         using var ctx = new LibraryTestContext();
         await ctx.InitializeAsync();
         using var viewModel = new LibraryViewModel(
-            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, new NoDialogs(), NullLogger<LibraryViewModel>.Instance);
+            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, new NoDialogs(), ctx.Archives, NullLogger<LibraryViewModel>.Instance);
         await viewModel.InitializeAsync();
 
         var items = Enumerable.Range(0, 10_000)

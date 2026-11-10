@@ -18,7 +18,7 @@ internal sealed class MainTestHarness : IDisposable
         Notifications = new NotificationService();
         Dialogs = new ScriptedDialogService();
         Library = new LibraryViewModel(
-            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, Dialogs, NullLogger<LibraryViewModel>.Instance);
+            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, Dialogs, ctx.Archives, NullLogger<LibraryViewModel>.Instance);
         Viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
         Toasts = new ToastHostViewModel(Notifications);
         Main = new MainViewModel(Library, Viewer, Toasts, Notifications, Dialogs, archives ?? ctx.Archives, NullLogger<MainViewModel>.Instance);
@@ -64,6 +64,17 @@ internal sealed class MainTestHarness : IDisposable
 
     public void Dispose()
     {
+        // 操作のあとに始まったサムネイルの作成などが、一時DBを使ったまま後始末へ進まないよう、終わるのを待つ。
+        // 待ちきれなかった場合も、後始末は続ける（テスト自体の結果は、各テストの検証で決まる）
+        try
+        {
+            Task.Run(WaitForIdleAsync).Wait(TimeSpan.FromSeconds(25));
+        }
+        catch (AggregateException)
+        {
+            // テストのキャンセルなど
+        }
+
         Viewer.Dispose();
         Library.Dispose();
         Toasts.Dispose();
@@ -85,6 +96,62 @@ internal sealed class MainTestHarness : IDisposable
         {
             LeaveConfirmations.Add((archiveName, pendingDeleteCount, updateUnavailableReason));
             return Choice;
+        }
+
+        // ---- ライブラリ画面の操作（名前変更・移動・削除・管理フォルダの解除） ----
+
+        /// <summary>名前変更の入力として返す文字列。null ならキャンセル。</summary>
+        public string? RenameInput { get; set; }
+
+        /// <summary>名前変更ダイアログに表示される、入力の問題の説明（直近の入力のもの）。</summary>
+        public string? LastRenameError { get; private set; }
+
+        public List<string> RenamePrompts { get; } = [];
+
+        /// <summary>移動先として返すフォルダ。null ならキャンセル。</summary>
+        public string? MoveDestination { get; set; }
+
+        public bool DeleteConfirmed { get; set; }
+
+        public bool PermanentDeleteConfirmed { get; set; }
+
+        public bool RemoveFolderConfirmed { get; set; }
+
+        public List<string> DeleteConfirmations { get; } = [];
+
+        public List<(string FileName, string Reason)> PermanentDeleteConfirmations { get; } = [];
+
+        public List<(string Path, int Count)> RemoveFolderConfirmations { get; } = [];
+
+        public string? PromptRename(string currentFileName, Func<string, string?> validate)
+        {
+            RenamePrompts.Add(currentFileName);
+            if (RenameInput is not null)
+            {
+                LastRenameError = validate(RenameInput);
+            }
+
+            return RenameInput;
+        }
+
+        public string? PickMoveDestination(string initialDirectory) => MoveDestination;
+
+        public bool ConfirmDeleteArchive(string fileName)
+        {
+            DeleteConfirmations.Add(fileName);
+            return DeleteConfirmed;
+        }
+
+        public bool ConfirmPermanentDelete(string fileName, string reason)
+        {
+            PermanentDeleteConfirmations.Add((fileName, reason));
+            return PermanentDeleteConfirmed;
+        }
+
+        public bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount)
+        {
+            RemoveFolderConfirmations.Add((folderPath, archiveCount));
+            return RemoveFolderConfirmed;
         }
     }
 }

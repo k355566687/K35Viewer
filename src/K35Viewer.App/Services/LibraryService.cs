@@ -2,6 +2,7 @@ using System.Globalization;
 using K35Viewer.Domain;
 using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
+using K35Viewer.Infrastructure.Thumbnails;
 using Microsoft.Extensions.Logging;
 using Microsoft.Data.Sqlite;
 
@@ -52,6 +53,7 @@ public sealed partial class LibraryService(
     HistoryRepository history,
     DatabaseWriter writer,
     FileSystemService fileSystem,
+    ThumbnailCacheStore thumbnailCache,
     INotificationService notifications,
     ILogger<LibraryService> logger)
 {
@@ -83,6 +85,7 @@ public sealed partial class LibraryService(
                 .ToList();
             return new FolderNode(
                 row.Id,
+                row.LibraryFolderId,
                 isRoot ? row.FullPath : row.Name,
                 row.FullPath,
                 isRoot,
@@ -145,6 +148,76 @@ public sealed partial class LibraryService(
 
         LogAdded(logger, fullPath, id, children.Count);
         return AddFolderResult.Added(id);
+    }
+
+    /// <summary>管理フォルダ配下のアーカイブの件数（確認ダイアログに表示する）。登録されていなければ null。</summary>
+    public async Task<int?> GetArchiveCountAsync(long libraryFolderId, CancellationToken ct = default) =>
+        (await libraries.GetSummariesAsync(ct)).FirstOrDefault(f => f.Id == libraryFolderId)?.ArchiveCount;
+
+    /// <summary>
+    /// 管理フォルダを管理対象から外す（UC-18）。配下のフォルダ・アーカイブ・サムネイルの管理情報をDBから削除し、
+    /// サムネイル画像のファイルを削除する。実際のファイルとフォルダは変更しない。
+    /// 操作履歴は残り、アーカイブとの関連（archive_id）だけがNULLになる（DB設計書 11.5）。
+    /// 呼び出し側は、スキャン中でないこと、対象のアーカイブをビューアで開いていないことを確認してから呼ぶ。
+    /// </summary>
+    public async Task<OperationResult> RemoveFolderAsync(long libraryFolderId, CancellationToken ct = default)
+    {
+        IReadOnlyList<string> thumbnailPaths = [];
+        OperationResult? result = null;
+        try
+        {
+            result = await writer.ExecuteAsync(
+                async (connection, transaction, token) =>
+                {
+                    var folder = await libraries.GetLibraryFolderAsync(connection, transaction, libraryFolderId, token);
+                    if (folder is null)
+                    {
+                        return null;
+                    }
+
+                    var count = await libraries.CountArchivesAsync(connection, transaction, libraryFolderId, token);
+                    thumbnailPaths = await libraries.GetThumbnailPathsAsync(connection, transaction, libraryFolderId, token);
+                    await libraries.DeleteLibraryFolderAsync(connection, transaction, libraryFolderId, token);
+
+                    var removed = new OperationResult(
+                        OperationType.LibraryFolderRemove,
+                        OperationStatus.Success,
+                        string.Create(
+                            CultureInfo.CurrentCulture,
+                            $"「{folder.Path}」を管理対象から外しました（アーカイブ{count:N0}件。ファイルは削除していません）"),
+                        AffectedCount: count,
+                        OldPath: folder.Path);
+                    await history.InsertAsync(connection, transaction, removed, token);
+                    return removed;
+                },
+                ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            LogRemoveFailed(logger, ex, libraryFolderId);
+            const string failure = "管理フォルダを管理対象から外せませんでした。ライブラリは変更していません";
+            notifications.ShowError(failure);
+            return new OperationResult(
+                OperationType.LibraryFolderRemove, OperationStatus.Failed, failure, ErrorCode: "DATABASE_ERROR");
+        }
+
+        if (result is null)
+        {
+            const string missing = "管理フォルダが見つかりません";
+            notifications.ShowWarning(missing);
+            return new OperationResult(
+                OperationType.LibraryFolderRemove, OperationStatus.Failed, missing, ErrorCode: "LIBRARY_FOLDER_NOT_FOUND");
+        }
+
+        // DBの更新が済んでから、サムネイル画像のファイル実体を削除する（削除できなくても処理は続ける）
+        foreach (var path in thumbnailPaths)
+        {
+            thumbnailCache.Delete(path);
+        }
+
+        LogRemoved(logger, libraryFolderId, result.AffectedCount ?? 0);
+        notifications.ShowSuccess(result.Message);
+        return result;
     }
 
     /// <summary>
@@ -235,6 +308,12 @@ public sealed partial class LibraryService(
         await libraries.SetFolderParentAsync(connection, transaction, child.NormalizedPath, parentFolderId, ct);
         await libraries.DeleteLibraryFolderAsync(connection, transaction, child.Id, ct);
     }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "管理フォルダを管理対象から外しました。LibraryFolderId={Id} Archives={Count}")]
+    private static partial void LogRemoved(ILogger logger, long id, int count);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "管理フォルダを管理対象から外せませんでした。LibraryFolderId={Id}")]
+    private static partial void LogRemoveFailed(ILogger logger, Exception exception, long id);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "管理フォルダを追加しました。Path={Path} LibraryFolderId={Id} MergedChildren={Merged}")]
     private static partial void LogAdded(ILogger logger, string path, long id, int merged);

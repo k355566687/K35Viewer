@@ -8,10 +8,31 @@
         <DataTemplate x:Key="ThumbnailCell">
             <StackPanel Width="164"
                         Margin="6"
-                        Background="Transparent"
                         ToolTip="{Binding FileName}"
                         AutomationProperties.Name="{Binding FileName}"
-                        MouseLeftButtonDown="OnThumbnailCellMouseLeftButtonDown">
+                        AutomationProperties.ItemStatus="{Binding StatusText}"
+                        MouseLeftButtonDown="OnThumbnailCellMouseLeftButtonDown"
+                        MouseRightButtonDown="OnArchiveItemMouseRightButtonDown">
+                <StackPanel.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="開く" Click="OnOpenMenuClick" />
+                        <MenuItem Header="名前を変更 (F2)" Click="OnRenameMenuClick" />
+                        <MenuItem Header="別のフォルダへ移動…" Click="OnMoveMenuClick" />
+                        <MenuItem Header="削除 (Delete)" Click="OnDeleteMenuClick" />
+                        <Separator />
+                        <MenuItem Header="エクスプローラーで表示" Click="OnShowInExplorerMenuClick" />
+                    </ContextMenu>
+                </StackPanel.ContextMenu>
+                <StackPanel.Style>
+                    <Style TargetType="StackPanel">
+                        <Setter Property="Background" Value="Transparent" />
+                        <Style.Triggers>
+                            <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                <Setter Property="Background" Value="#CFE3FF" />
+                            </DataTrigger>
+                        </Style.Triggers>
+                    </Style>
+                </StackPanel.Style>
                 <Border Width="164"
                         Height="220"
                         Background="#EEEEEE"
@@ -34,6 +55,19 @@
                 <StackPanel Orientation="Horizontal">
                     <TextBlock Text="画像" Foreground="#555555" />
                     <TextBlock Text="{Binding ImageCountText}" Foreground="#555555" Margin="4,0,0,0" />
+                    <!-- 選択を、色だけでなく文字でも示す -->
+                    <TextBlock Text="✓ 選択中" Foreground="#1F4E8C" FontWeight="SemiBold" Margin="8,0,0,0">
+                        <TextBlock.Style>
+                            <Style TargetType="TextBlock">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsSelected}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </TextBlock.Style>
+                    </TextBlock>
                 </StackPanel>
             </StackPanel>
         </DataTemplate>
@@ -61,6 +95,13 @@
         <!-- 左ナビゲーション: フォルダツリーとフォルダ追加 -->
         <DockPanel Grid.Column="0" Margin="12">
             <Button DockPanel.Dock="Bottom"
+                    Content="管理対象から外す"
+                    Command="{Binding RemoveSelectedFolderCommand}"
+                    Padding="14,6"
+                    Margin="0,8,0,0"
+                    ToolTip="選択中の管理フォルダ（ツリーの最上位のフォルダ）を、管理対象から外します。ファイルは削除されません"
+                    AutomationProperties.Name="選択中の管理フォルダを管理対象から外す" />
+            <Button DockPanel.Dock="Bottom"
                     Content="＋ フォルダを追加"
                     Command="{Binding AddFolderCommand}"
                     Padding="14,6"
@@ -70,10 +111,16 @@
                        Text="ライブラリ"
                        FontWeight="SemiBold"
                        Margin="0,0,0,6" />
-            <TreeView ItemsSource="{Binding FolderRoots}"
+            <TreeView x:Name="FolderTree"
+                      ItemsSource="{Binding FolderRoots}"
                       AutomationProperties.Name="フォルダツリー"
                       VirtualizingPanel.IsVirtualizing="True"
                       SelectedItemChanged="OnTreeSelectedItemChanged">
+                <TreeView.ContextMenu>
+                    <ContextMenu>
+                        <MenuItem Header="管理対象から外す" Click="OnRemoveFolderMenuClick" />
+                    </ContextMenu>
+                </TreeView.ContextMenu>
                 <TreeView.ItemContainerStyle>
                     <Style TargetType="TreeViewItem">
                         <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
@@ -140,6 +187,38 @@
                            Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
             </WrapPanel>
 
+            <!-- 選択中のアーカイブへの操作（右クリックメニューと同じ） -->
+            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8" AutomationProperties.Name="選択中のアーカイブへの操作">
+                <Button Content="開く"
+                        Command="{Binding OpenSelectedCommand}"
+                        Padding="12,3"
+                        ToolTip="選択中のアーカイブを開きます (Enter)"
+                        AutomationProperties.Name="選択中のアーカイブを開く" />
+                <Button Content="名前変更"
+                        Command="{Binding RenameSelectedCommand}"
+                        Padding="12,3"
+                        Margin="6,0,0,0"
+                        ToolTip="名前を変更します (F2)"
+                        AutomationProperties.Name="選択中のアーカイブの名前を変更" />
+                <Button Content="移動…"
+                        Command="{Binding MoveSelectedCommand}"
+                        Padding="12,3"
+                        Margin="6,0,0,0"
+                        ToolTip="別のフォルダへ移動します"
+                        AutomationProperties.Name="選択中のアーカイブを別のフォルダへ移動" />
+                <Button Content="削除"
+                        Command="{Binding DeleteSelectedCommand}"
+                        Padding="12,3"
+                        Margin="6,0,0,0"
+                        ToolTip="ごみ箱へ移動します (Delete)"
+                        AutomationProperties.Name="選択中のアーカイブを削除" />
+                <Button Content="エクスプローラーで表示"
+                        Command="{Binding ShowSelectedInExplorerCommand}"
+                        Padding="12,3"
+                        Margin="6,0,0,0"
+                        AutomationProperties.Name="選択中のアーカイブをエクスプローラーで表示" />
+            </WrapPanel>
+
             <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0" LastChildFill="False">
                 <TextBlock DockPanel.Dock="Left"
                            Text="{Binding CountText}"
@@ -153,7 +232,10 @@
 
             <Grid>
                 <!-- ListView / ListBoxはScrollViewerやStackPanelの中に置かない(置くと仮想化が無効になる) -->
-                <ListView ItemsSource="{Binding Archives}"
+                <ListView x:Name="DetailList"
+                          ItemsSource="{Binding Archives}"
+                          SelectedItem="{Binding SelectedArchive, Mode=TwoWay}"
+                          SelectionMode="Single"
                           AutomationProperties.Name="アーカイブ一覧"
                           VirtualizingPanel.IsVirtualizing="True"
                           VirtualizingPanel.VirtualizationMode="Recycling"
@@ -161,6 +243,16 @@
                           MouseDoubleClick="OnArchiveListMouseDoubleClick"
                           KeyDown="OnArchiveListKeyDown"
                           Visibility="{Binding IsDetailView, Converter={StaticResource BoolToVisibility}}">
+                    <ListView.ContextMenu>
+                        <ContextMenu>
+                            <MenuItem Header="開く" Click="OnOpenMenuClick" />
+                            <MenuItem Header="名前を変更 (F2)" Click="OnRenameMenuClick" />
+                            <MenuItem Header="別のフォルダへ移動…" Click="OnMoveMenuClick" />
+                            <MenuItem Header="削除 (Delete)" Click="OnDeleteMenuClick" />
+                            <Separator />
+                            <MenuItem Header="エクスプローラーで表示" Click="OnShowInExplorerMenuClick" />
+                        </ContextMenu>
+                    </ListView.ContextMenu>
                     <ListView.View>
                         <GridView>
                             <GridViewColumn Header="ファイル名" Width="320" DisplayMemberBinding="{Binding FileName}" />
@@ -181,6 +273,7 @@
                          ScrollViewer.CanContentScroll="True"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          Visibility="{Binding IsThumbnailView, Converter={StaticResource BoolToVisibility}}"
+                         KeyDown="OnThumbnailListKeyDown"
                          SizeChanged="OnThumbnailListSizeChanged">
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">

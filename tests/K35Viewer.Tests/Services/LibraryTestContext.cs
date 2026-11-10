@@ -121,6 +121,25 @@ internal static class TestFileOperations
     }
 }
 
+/// <summary>実際のエクスプローラーの代わりのテスト用実装（自動テストは、エクスプローラーを起動しない）。</summary>
+internal sealed class FakeExplorerLauncher : IExplorerLauncher
+{
+    public List<string> Revealed { get; } = [];
+
+    /// <summary>設定すると、表示を求められたときにこの例外を投げる。</summary>
+    public Exception? Failure { get; set; }
+
+    public void Reveal(string fullPath)
+    {
+        if (Failure is not null)
+        {
+            throw Failure;
+        }
+
+        Revealed.Add(fullPath);
+    }
+}
+
 /// <summary>
 /// 実際のごみ箱の代わりのテスト用実装（自動テストは、実際のごみ箱を操作しない）。
 /// 移動するファイルは、テスト用の一時フォルダへ移す。利用不可・失敗・移動直後の処理を設定できる。
@@ -197,7 +216,7 @@ internal sealed class LibraryTestContext : IDisposable
         Reader = new CountingArchiveReader(new ArchiveReader());
 
         Library = new LibraryService(
-            _libraries, ArchiveRepository, history, _writer, _fileSystem, Notifications, NullLogger<LibraryService>.Instance);
+            _libraries, ArchiveRepository, history, _writer, _fileSystem, Cache, Notifications, NullLogger<LibraryService>.Instance);
         Scan = new ScanService(
             _fileSystem, _libraries, ArchiveRepository, new ScanRepository(), history, _writer, Notifications,
             NullLogger<ScanService>.Instance);
@@ -208,13 +227,17 @@ internal sealed class LibraryTestContext : IDisposable
         _disposables.Add(ImageLoader);
 
         RecycleBin = new FakeRecycleBin(Path.Combine(root, "bin-" + id));
+        Explorer = new FakeExplorerLauncher();
         Archives = CreateArchiveService();
     }
 
     /// <summary>実際のごみ箱の代わり。元のファイルを、テスト用の一時フォルダへ移す。</summary>
     public FakeRecycleBin RecycleBin { get; }
 
-    /// <summary>実際のZIP再構築と、偽のごみ箱を使うアーカイブ更新サービス。</summary>
+    /// <summary>実際のエクスプローラーの代わり。表示を求められたパスを記録する。</summary>
+    public FakeExplorerLauncher Explorer { get; }
+
+    /// <summary>実際のZIP再構築と、偽のごみ箱・エクスプローラーを使うアーカイブ操作サービス。</summary>
     public ArchiveService Archives { get; }
 
     /// <summary>
@@ -222,11 +245,12 @@ internal sealed class LibraryTestContext : IDisposable
     /// 置き換えの再試行の待ち時間は、テストを速くするため短くする。
     /// </summary>
     public ArchiveService CreateArchiveService(
-        IArchiveWriter? writer = null, IRecycleBinService? recycleBin = null, IReadOnlyList<TimeSpan>? replaceDelays = null) =>
+        IArchiveWriter? writer = null, IRecycleBinService? recycleBin = null, IReadOnlyList<TimeSpan>? replaceDelays = null, bool alwaysCopyOnMove = false) =>
         new(writer ?? new ArchiveWriter(), recycleBin ?? RecycleBin, _fileSystem, ArchiveRepository, _thumbnailRepository,
-            _history, _writer, Notifications, NullLogger<ArchiveService>.Instance)
+            _history, _libraries, Cache, Explorer, _writer, Notifications, NullLogger<ArchiveService>.Instance)
         {
             ReplaceDelays = replaceDelays ?? [TimeSpan.FromMilliseconds(1), TimeSpan.FromMilliseconds(1)],
+            AlwaysCopyOnMove = alwaysCopyOnMove,
         };
 
     public ThumbnailImageLoader ImageLoader { get; }

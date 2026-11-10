@@ -52,6 +52,7 @@ public partial class App : Application
         builder.Services.AddSingleton<IDialogService, WpfDialogService>();
         builder.Services.AddSingleton<IArchiveWriter, ArchiveWriter>();
         builder.Services.AddSingleton<IRecycleBinService, RecycleBinService>();
+        builder.Services.AddSingleton<IExplorerLauncher, ExplorerLauncher>();
         builder.Services.AddSingleton<ArchiveService>();
         builder.Services.AddSingleton<ViewerService>();
         builder.Services.AddSingleton<ViewerImageDecoder>();

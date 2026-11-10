@@ -107,6 +107,24 @@ public sealed class FileSystemService
     /// <summary>ファイルを移動（名前変更）する。移動先に同名のファイルがあれば失敗する（上書きしない）。</summary>
     public void MoveFile(string sourcePath, string destinationPath) => File.Move(sourcePath, destinationPath, overwrite: false);
 
+    /// <summary>ファイルをコピーする（更新日時も引き継ぐ）。コピー先に同名のファイルがあれば失敗する（上書きしない）。</summary>
+    public void CopyFile(string sourcePath, string destinationPath) => File.Copy(sourcePath, destinationPath, overwrite: false);
+
+    /// <summary>ファイルを完全に削除する（ごみ箱へは移さない）。削除できない場合は例外。</summary>
+    public void DeleteFile(string path) => File.Delete(path);
+
+    public bool FileExists(string path) => File.Exists(path);
+
+    /// <summary>
+    /// 2つのパスが同じボリューム（ドライブ、またはUNCの共有）にあるか。同じなら移動は名前の変更で済み、
+    /// 異なればコピーして元を削除する必要がある。
+    /// </summary>
+    public bool IsSameVolume(string pathA, string pathB) =>
+        string.Equals(
+            Path.GetPathRoot(Path.GetFullPath(pathA)),
+            Path.GetPathRoot(Path.GetFullPath(pathB)),
+            StringComparison.OrdinalIgnoreCase);
+
     /// <summary>
     /// ファイルの置き場所のドライブの空き容量（バイト）。UNCパスなど調べられない場合は null。
     /// </summary>
