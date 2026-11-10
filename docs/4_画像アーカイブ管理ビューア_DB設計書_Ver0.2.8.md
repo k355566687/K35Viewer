@@ -1,12 +1,18 @@
 # 画像アーカイブ管理ビューア DB設計書
 
-**文書バージョン:** Ver.0.2.7  
+**文書バージョン:** Ver.0.2.8  
 **作成日:** 2026-11-06  
 **更新日:** 2026-11-07  
 **対象:** MVP  
 **DBMS:** SQLite
 
 ## 1. 修正内容
+
+### Ver.0.2.8（Phase 8 実装に伴う確定事項）
+
+- ZIP再構築（画像の削除）をDBへ反映する規則を確定した。11.3を更新。`archives` のサイズ・更新日時・画像枚数・閲覧位置を更新し、解析待ち（`PENDING`）に戻し、サムネイルを再生成待ち（`STALE`）にし、`IMAGE_DELETE` の操作履歴を追加する（1トランザクション）
+- 置き換えの途中で失敗した場合の `IMAGE_DELETE`（`FAILED`）の記録内容を確定した。`new_path` に、更新後のファイルが残っている一時ファイルのパスを入れる。`error_code` は `REPLACE_FAILED`
+- 初期DDLは変更していない（`schema_version` は1のまま）
 
 ### Ver.0.2.7（Phase 6 実装に伴う確定事項）
 
@@ -577,6 +583,14 @@ DB書き込みは単一キューへ集約し、複数のバックグラウンド
 6. `operation_type = IMAGE_DELETE` として、削除画像数を含む操作履歴を追加する
 7. ZIP再構築の内部処理詳細はアプリケーションログへ記録する
 8. サムネイルを非同期で再生成する
+
+Phase 8 の実装で、手順4〜6を次のとおり確定した（1トランザクション。ファイルの置き換えが済んだあとに行う）。
+
+- `archives`: `file_size` / `last_write_time` を新しいファイルの値にする。`image_count` を削除後の画像枚数にし、`first_image_entry` は `NULL`、`analysis_status` は `PENDING`、`error_code` / `error_message` は `NULL`、`availability_status` は `AVAILABLE`（再構築の途中でスキャンが `MISSING` にしていた場合も有効に戻す）にする。Archive ID は変わらない
+- 最後に閲覧した位置（`last_view_entry` / `last_view_index` / `last_viewed_at`）: 更新前に見ていた画像を、更新後のアーカイブでの位置にする。その画像が削除された場合は、次の（なければ前の）残った画像。残った画像がなければ `NULL`
+- `thumbnail_cache`: `status` を `STALE` にする。古い画像は、再生成されるまで表示を続ける。`PENDING` になった解析が次のサムネイル処理で行われ、表紙とサムネイルが作り直される（11.9）
+- `operation_history`: `IMAGE_DELETE`、`SUCCESS`、`affected_count` に削除した画像の数、`old_path` と `new_path` に同じアーカイブのパス
+- DB更新だけが失敗した場合（ファイルは置き換え済み）は、次回のスキャンが実ファイルから同期する。このときサイズ・更新日時が変わっているため、解析待ち・サムネイル再生成待ちになる
 
 ### 11.4 削除
 
