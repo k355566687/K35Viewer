@@ -19,3 +19,6 @@ coverage/
 logs/
 /thumbnails/
 temp/
+
+# 画面確認用のサンプルデータと撮影結果（tests/Tools/SampleLibraryGenerator.cs で作る）
+.agents/sample/

@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace K35Viewer.Tests.Services;
 
 /// <summary>削除予約（UC-08、UC-09、UC-10）と、アーカイブを離れるときの確認（DLG-01）。ZIP本体は変更しない。</summary>
+[Collection(WpfViewsGroup.Name)]
 public class ViewerDeleteReservationTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -441,7 +442,7 @@ public class ViewerDeleteReservationTests
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            var window = new MainWindow(harness.Main);
+            var window = WpfTestHelper.WithAppTheme(new MainWindow(harness.Main));
             window.Show();
             WpfTestHelper.Pump();
             var source = PresentationSource.FromVisual(window)!;
@@ -479,7 +480,7 @@ public class ViewerDeleteReservationTests
         WpfTestHelper.RunOnStaThread(() =>
         {
             var view = new ViewerView { DataContext = viewer };
-            var window = new Window { Width = 1280, Height = 800, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
             window.Show();
             WpfTestHelper.Pump();
             viewer.ToggleViewModeCommand.Execute(null);

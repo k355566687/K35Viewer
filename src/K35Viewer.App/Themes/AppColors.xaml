@@ -1,0 +1,18 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!--
+        アプリ独自の色。
+        ・文字・面・枠は、Fluent テーマの色（TextFillColorPrimaryBrush など）を DynamicResource で直接参照し、テーマに追従させる
+        ・ここに置くのは、テーマによらず同じ意味を持つ色（白い文字を載せる面、選択の強調）だけ
+        ・ビューアの画像の背景は、ライトのテーマでも暗いままにする（画像を見る画面のため。ViewerView.xaml）
+    -->
+
+    <!-- 選択した項目の背景（アクセント色を薄く重ねる。明るい背景でも暗い背景でも見分けられる） -->
+    <SolidColorBrush x:Key="K35.SelectionFillBrush" Color="#404CC2FF" />
+
+    <!-- 削除予定のラベル（白い文字を載せる） -->
+    <SolidColorBrush x:Key="K35.DangerFillBrush" Color="#B3261E" />
+
+    <!-- 画面全体を覆う表示（更新中）、画像の上に重ねる表示の背景 -->
+    <SolidColorBrush x:Key="K35.OverlayBrush" Color="#CC000000" />
+</ResourceDictionary>

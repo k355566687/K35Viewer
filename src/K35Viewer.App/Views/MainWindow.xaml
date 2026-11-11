@@ -17,7 +17,7 @@
             <views:ViewerView DataContext="{Binding Viewer}" />
         </Grid>
         <!-- アーカイブの更新中。画面の操作を受け付けないよう、全体を覆う -->
-        <Border Background="#CC000000"
+        <Border Background="{DynamicResource K35.OverlayBrush}"
                 Visibility="{Binding IsUpdating, Converter={StaticResource BoolToVisibility}}"
                 Focusable="False">
             <StackPanel HorizontalAlignment="Center" VerticalAlignment="Center" Width="460">

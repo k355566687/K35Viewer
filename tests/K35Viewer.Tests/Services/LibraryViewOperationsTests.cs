@@ -10,6 +10,7 @@ using K35Viewer.Views;
 namespace K35Viewer.Tests.Services;
 
 /// <summary>実際のWPFのライブラリ画面で、選択・キー操作・右クリックメニュー・ボタンが操作に結びついていること。</summary>
+[Collection(WpfViewsGroup.Name)]
 public class LibraryViewOperationsTests
 {
     private static T Find<T>(DependencyObject root, string automationName)
@@ -55,7 +56,7 @@ public class LibraryViewOperationsTests
         WpfTestHelper.RunOnStaThread(() =>
         {
             var view = new LibraryView { DataContext = library };
-            var window = new Window { Width = 1280, Height = 800, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
             window.Show();
             WpfTestHelper.Pump();
             WpfTestHelper.Pump();
@@ -72,7 +73,8 @@ public class LibraryViewOperationsTests
             var selectedCard = Card(list, "b.zip");
             checkMarkVisibleOnSelected = WpfTestHelper.Descendants<TextBlock>(selectedCard).Any(t => t.Text == "✓ 選択中" && t.IsVisible);
             checkMarkVisibleOnOther = WpfTestHelper.Descendants<TextBlock>(Card(list, "a.zip")).Any(t => t.Text == "✓ 選択中" && t.IsVisible);
-            highlighted = selectedCard is StackPanel { Background: SolidColorBrush { Color: { R: 0xCF, G: 0xE3, B: 0xFF } } };
+            highlighted = selectedCard.Background is SolidColorBrush selectedBrush
+                && selectedBrush.Color == ((SolidColorBrush)window.FindResource("K35.SelectionFillBrush")).Color;
 
             // キー操作で選択が動く
             list.RaiseEvent(KeyDown(list, Key.Right));
@@ -122,7 +124,7 @@ public class LibraryViewOperationsTests
         WpfTestHelper.RunOnStaThread(() =>
         {
             var view = new LibraryView { DataContext = library };
-            var window = new Window { Width = 1280, Height = 800, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
             window.Show();
             WpfTestHelper.Pump();
             WpfTestHelper.Pump();
@@ -197,7 +199,7 @@ public class LibraryViewOperationsTests
         WpfTestHelper.RunOnStaThread(() =>
         {
             var view = new LibraryView { DataContext = library };
-            var window = new Window { Width = 1280, Height = 800, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
             window.Show();
             WpfTestHelper.Pump();
             WpfTestHelper.Pump();

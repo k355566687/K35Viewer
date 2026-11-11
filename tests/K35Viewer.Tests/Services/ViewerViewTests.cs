@@ -13,6 +13,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 namespace K35Viewer.Tests.Services;
 
 /// <summary>実際のWPFウィンドウで、ビューア画面の表示・操作・画面切り替えを確認する。</summary>
+[Collection(WpfViewsGroup.Name)]
 public class ViewerViewTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -34,7 +35,7 @@ public class ViewerViewTests
         WpfTestHelper.RunOnStaThread(() =>
         {
             var view = new ViewerView { DataContext = viewer };
-            var window = new Window { Width = 1000, Height = 700, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1000, Height = 700, Content = view });
             window.Show();
             WpfTestHelper.Pump();
 
@@ -98,7 +99,7 @@ public class ViewerViewTests
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            var window = new MainWindow(harness.Main);
+            var window = WpfTestHelper.WithAppTheme(new MainWindow(harness.Main));
             window.Show();
             WpfTestHelper.Pump();
             titleWhileViewing = window.Title;
@@ -168,7 +169,7 @@ public class ViewerViewTests
         WpfTestHelper.RunOnStaThread(() =>
         {
             var view = new ViewerView { DataContext = viewer };
-            var window = new Window { Width = 1280, Height = 800, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
             window.Show();
             WpfTestHelper.Pump();
 
@@ -260,7 +261,7 @@ public class ViewerViewTests
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            var window = new MainWindow(harness.Main);
+            var window = WpfTestHelper.WithAppTheme(new MainWindow(harness.Main));
             window.Show();
             WpfTestHelper.Pump();
             var source = PresentationSource.FromVisual(window)!;
@@ -301,7 +302,7 @@ public class ViewerViewTests
         WpfTestHelper.RunOnStaThread(() =>
         {
             var view = new ViewerView { DataContext = viewer };
-            var window = new Window { Width = 900, Height = 600, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 900, Height = 600, Content = view });
             window.Show();
             WpfTestHelper.Pump();
 

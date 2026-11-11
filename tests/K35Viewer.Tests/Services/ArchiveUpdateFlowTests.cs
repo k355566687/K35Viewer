@@ -13,6 +13,7 @@ namespace K35Viewer.Tests.Services;
 /// <summary>
 /// 画面の操作（離れるときの確認で「更新する」を選ぶ）から、ZIPの更新、ライブラリ画面の更新までの流れ（UC-11）。
 /// </summary>
+[Collection(WpfViewsGroup.Name)]
 public class ArchiveUpdateFlowTests
 {
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
@@ -235,7 +236,7 @@ public class ArchiveUpdateFlowTests
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            var window = new MainWindow(harness.Main);
+            var window = WpfTestHelper.WithAppTheme(new MainWindow(harness.Main));
             harness.Main.UiContext = new DispatcherSynchronizationContext(window.Dispatcher); // 進行状況の表示を、ウィンドウのスレッドへ届ける
             window.Show();
             WpfTestHelper.Pump();
@@ -277,7 +278,7 @@ public class ArchiveUpdateFlowTests
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            var window = new MainWindow(harness.Main);
+            var window = WpfTestHelper.WithAppTheme(new MainWindow(harness.Main));
             harness.Main.UiContext = new DispatcherSynchronizationContext(window.Dispatcher); // 進行状況の表示を、ウィンドウのスレッドへ届ける
             window.Show();
             WpfTestHelper.Pump();

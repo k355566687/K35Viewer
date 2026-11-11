@@ -1,6 +1,17 @@
 <Application x:Class="K35Viewer.App"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
-             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             ThemeMode="Dark">
+    <!--
+        WPF の Fluent テーマを使う（.NET 10 では試験的な API）。標準のコントロールはテーマに従う。
+        アプリ独自の色も、文字・面・枠・選択はテーマの色（DynamicResource）を参照し、
+        ThemeMode を Light / System に変えるだけで追従するようにする（Themes/AppColors.xaml）。
+    -->
     <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="Themes/AppColors.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+        </ResourceDictionary>
     </Application.Resources>
 </Application>

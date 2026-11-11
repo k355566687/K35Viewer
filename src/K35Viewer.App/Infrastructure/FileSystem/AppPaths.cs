@@ -25,9 +25,18 @@ public sealed class AppPaths
 
     public string TempDirectory { get; }
 
-    /// <summary>%LOCALAPPDATA%\K35Viewer を配置先とする。</summary>
-    public static AppPaths CreateDefault() =>
-        new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "K35Viewer"));
+    /// <summary>実行時データの配置先を切り替える環境変数（画面の確認用のサンプルデータなど、普段のライブラリに触れないため）。</summary>
+    public const string DataRootVariable = "K35VIEWER_DATA_ROOT";
+
+    /// <summary>
+    /// 環境変数 <see cref="DataRootVariable"/> が指定されていればその場所、なければ %LOCALAPPDATA%\K35Viewer を配置先とする。
+    /// </summary>
+    public static AppPaths CreateDefault() => FromEnvironment(Environment.GetEnvironmentVariable(DataRootVariable));
+
+    internal static AppPaths FromEnvironment(string? dataRoot) =>
+        string.IsNullOrWhiteSpace(dataRoot)
+            ? new(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "K35Viewer"))
+            : new(Path.GetFullPath(dataRoot.Trim()));
 
     /// <summary>必要なディレクトリを作成する（既に存在する場合は何もしない）。</summary>
     public void EnsureDirectories()

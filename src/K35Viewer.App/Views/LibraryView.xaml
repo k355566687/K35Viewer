@@ -28,22 +28,22 @@
                         <Setter Property="Background" Value="Transparent" />
                         <Style.Triggers>
                             <DataTrigger Binding="{Binding IsSelected}" Value="True">
-                                <Setter Property="Background" Value="#CFE3FF" />
+                                <Setter Property="Background" Value="{DynamicResource K35.SelectionFillBrush}" />
                             </DataTrigger>
                         </Style.Triggers>
                     </Style>
                 </StackPanel.Style>
                 <Border Width="164"
                         Height="220"
-                        Background="#EEEEEE"
-                        BorderBrush="#CCCCCC"
+                        Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                        BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
                         BorderThickness="1">
                     <Grid>
                         <TextBlock Text="{Binding PlaceholderText}"
                                    HorizontalAlignment="Center"
                                    VerticalAlignment="Center"
                                    TextAlignment="Center"
-                                   Foreground="#555555" />
+                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
                         <Image Source="{Binding Thumbnail}"
                                Stretch="Uniform"
                                RenderOptions.BitmapScalingMode="HighQuality" />
@@ -53,10 +53,10 @@
                            TextTrimming="CharacterEllipsis"
                            Margin="0,4,0,0" />
                 <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="画像" Foreground="#555555" />
-                    <TextBlock Text="{Binding ImageCountText}" Foreground="#555555" Margin="4,0,0,0" />
+                    <TextBlock Text="画像" Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                    <TextBlock Text="{Binding ImageCountText}" Foreground="{DynamicResource TextFillColorSecondaryBrush}" Margin="4,0,0,0" />
                     <!-- 選択を、色だけでなく文字でも示す -->
-                    <TextBlock Text="✓ 選択中" Foreground="#1F4E8C" FontWeight="SemiBold" Margin="8,0,0,0">
+                    <TextBlock Text="✓ 選択中" Foreground="{DynamicResource AccentTextFillColorPrimaryBrush}" FontWeight="SemiBold" Margin="8,0,0,0">
                         <TextBlock.Style>
                             <Style TargetType="TextBlock">
                                 <Setter Property="Visibility" Value="Collapsed" />
@@ -222,11 +222,11 @@
             <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0" LastChildFill="False">
                 <TextBlock DockPanel.Dock="Left"
                            Text="{Binding CountText}"
-                           Foreground="#444444"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                            AutomationProperties.Name="表示件数" />
                 <TextBlock DockPanel.Dock="Right"
                            Text="{Binding ThumbnailProgressText}"
-                           Foreground="#444444"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                            AutomationProperties.Name="サムネイル作成の進捗" />
             </DockPanel>
 
@@ -292,7 +292,7 @@
                 <TextBlock Text="{Binding EmptyMessage}"
                            HorizontalAlignment="Center"
                            VerticalAlignment="Center"
-                           Foreground="#444444"
+                           Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                            IsHitTestVisible="False">
                     <TextBlock.Style>
                         <Style TargetType="TextBlock">

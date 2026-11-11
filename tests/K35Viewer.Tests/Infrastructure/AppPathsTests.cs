@@ -28,4 +28,29 @@ public class AppPathsTests
             }
         }
     }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("")]
+    [InlineData("   ")]
+    public void 保存先の指定がなければ_ローカルのアプリデータの下を使う(string? value)
+    {
+        var expected = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "K35Viewer");
+
+        Assert.Equal(expected, AppPaths.FromEnvironment(value).Root);
+    }
+
+    [Fact]
+    public void 保存先を指定すると_その場所の下にDBなどを置く()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "K35ViewerTests", "sample-root");
+
+        var paths = AppPaths.FromEnvironment("  " + root + "  ");
+
+        Assert.Equal(root, paths.Root);
+        Assert.Equal(Path.Combine(root, "library.db"), paths.DatabaseFile);
+        Assert.Equal(Path.Combine(root, "thumbnails"), paths.ThumbnailsDirectory);
+        Assert.False(Directory.Exists(root)); // 作るのは EnsureDirectories を呼んだとき
+    }
 }

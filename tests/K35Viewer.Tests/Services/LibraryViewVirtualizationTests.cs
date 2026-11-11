@@ -13,6 +13,7 @@ namespace K35Viewer.Tests.Services;
 /// <summary>
 /// 実際のWPFウィンドウに1万件を表示し、一覧の仮想化が効いて「画面に見える行だけ」が生成されることを確認する。
 /// </summary>
+[Collection(WpfViewsGroup.Name)]
 public class LibraryViewVirtualizationTests
 {
     private sealed class NoDialogs : IDialogService
@@ -63,7 +64,7 @@ public class LibraryViewVirtualizationTests
         RunOnStaThread(() =>
         {
             var view = new LibraryView { DataContext = viewModel };
-            var window = new Window { Width = 1280, Height = 800, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
 
             var stopwatch = Stopwatch.StartNew();
             window.Show();
@@ -116,7 +117,7 @@ public class LibraryViewVirtualizationTests
         RunOnStaThread(() =>
         {
             var view = new LibraryView { DataContext = viewModel };
-            var window = new Window { Width = 1280, Height = 800, Content = view };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
 
             var stopwatch = Stopwatch.StartNew();
             window.Show();

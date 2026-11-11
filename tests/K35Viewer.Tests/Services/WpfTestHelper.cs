@@ -36,6 +36,19 @@ internal static class WpfTestHelper
         }
     }
 
+    /// <summary>
+    /// アプリと同じ見た目（Fluent テーマのダークと、アプリ独自の色）をウィンドウに当てる。
+    /// テストではアプリ（App.xaml）を起動しないため、ウィンドウの単位で読み込む。
+    /// </summary>
+    public static T WithAppTheme<T>(T window)
+        where T : Window
+    {
+        window.ThemeMode = ThemeMode.Dark;
+        window.Resources.MergedDictionaries.Add(
+            new ResourceDictionary { Source = new Uri("/K35Viewer;component/Themes/AppColors.xaml", UriKind.Relative) });
+        return window;
+    }
+
     public static IEnumerable<T> Descendants<T>(DependencyObject root)
         where T : DependencyObject
     {
