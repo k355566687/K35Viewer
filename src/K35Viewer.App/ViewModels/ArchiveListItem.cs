@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Windows.Media;
 using CommunityToolkit.Mvvm.ComponentModel;
 using K35Viewer.Domain;
+using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Services;
 
@@ -66,8 +67,36 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
     /// <summary>スクリーンリーダー等に伝える状態。色だけに頼らない。</summary>
     public string StatusText => _isSelected ? "選択中" : string.Empty;
 
-    /// <summary>保存場所(アーカイブを格納しているフォルダ)。</summary>
+    /// <summary>保存場所(アーカイブを格納しているフォルダ)のフルパス。操作（移動先の初期フォルダなど）に使う。</summary>
     public string Location => _summary.FolderPath;
+
+    /// <summary>
+    /// 一覧に表示する保存場所。管理フォルダの名前から始まる相対パス（例: 「Archive\漫画\2025」）。
+    /// 全行で同じになりやすい管理フォルダまでのパスを省き、違いが見える部分を残す。フルパスはツールチップで示す。
+    /// </summary>
+    public string LocationText
+    {
+        get
+        {
+            var root = _summary.LibraryRootPath;
+            if (string.IsNullOrEmpty(root))
+            {
+                return _summary.FolderPath;
+            }
+
+            var rootName = PathNormalizer.GetDisplayName(root);
+            var relative = Path.GetRelativePath(root, _summary.FolderPath);
+            if (relative == ".")
+            {
+                return rootName;
+            }
+
+            // 管理フォルダの外（通常は起きない）は、フルパスのまま
+            return relative.StartsWith("..", StringComparison.Ordinal) || Path.IsPathRooted(relative)
+                ? _summary.FolderPath
+                : rootName + Path.DirectorySeparatorChar + relative;
+        }
+    }
 
     public string? ThumbnailPath => _summary.ThumbnailPath;
 

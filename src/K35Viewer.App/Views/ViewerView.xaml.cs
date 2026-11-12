@@ -41,6 +41,7 @@ public partial class ViewerView : UserControl
             newViewModel.PropertyChanged += OnViewModelPropertyChanged;
             newViewModel.ScrollToRowRequested += OnScrollToRowRequested;
             UpdateViewport();
+            UpdateListColumns();
         }
     }
 
@@ -64,8 +65,19 @@ public partial class ViewerView : UserControl
     }
 
     // 一覧表示: 領域の幅に合わせて、1行に並べる枚数を決め直す（縦スクロールバーの幅は除く）
-    private void OnPageListSizeChanged(object sender, SizeChangedEventArgs e) =>
-        ViewModel?.UpdateListViewport(e.NewSize.Width - SystemParameters.VerticalScrollBarWidth - 8);
+    private void OnPageListSizeChanged(object sender, SizeChangedEventArgs e) => UpdateListColumns();
+
+    // 一覧表示に切り替えたときにも決め直す（大きさは変わらないため、SizeChanged が起きない）
+    private void OnPageListIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e) => UpdateListColumns();
+
+    /// <summary>一覧の今の幅から、1行に並べる枚数を決め直す（ライブラリ画面の UpdateThumbnailColumns と同じ）。</summary>
+    private void UpdateListColumns()
+    {
+        if (PageList.ActualWidth > 0)
+        {
+            ViewModel?.UpdateListViewport(LibraryView.UsableWidth(PageList, PageList.ActualWidth));
+        }
+    }
 
     // 一覧表示: クリックで選択（Ctrl / Shift で複数選択）、ダブルクリックでその画像を1枚表示
     private void OnPageCellMouseLeftButtonDown(object sender, MouseButtonEventArgs e)

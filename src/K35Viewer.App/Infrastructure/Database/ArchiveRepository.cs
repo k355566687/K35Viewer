@@ -85,8 +85,9 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         // サムネイルは READY のほか、再生成待ち(STALE)の間も古い画像を表示し続ける
         var listSql =
             $"{cte} SELECT a.id, a.file_name, f.full_path, a.file_size, a.last_write_time, a.image_count, a.analysis_status, " +
-            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status " +
+            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status, lf.path " +
             "FROM archives a JOIN folders f ON a.folder_id = f.id " +
+            "JOIN library_folders lf ON f.library_folder_id = lf.id " +
             $"LEFT JOIN thumbnail_cache t ON t.archive_id = a.id WHERE {where} " +
             $"ORDER BY {orderBy}, a.id{paging}";
 
@@ -114,7 +115,8 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
                     reader.IsDBNull(5) ? null : (int)reader.GetInt64(5),
                     reader.GetString(6),
                     reader.GetNullableString(7),
-                    reader.GetNullableString(8)));
+                    reader.GetNullableString(8),
+                    reader.GetString(9)));
             }
         }
 

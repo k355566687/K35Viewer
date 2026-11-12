@@ -89,7 +89,7 @@ public partial class App : Application
         _exceptionReporter = new UnhandledExceptionReporter(
             _host.Services.GetRequiredService<ILogger<UnhandledExceptionReporter>>(), paths.LogsDirectory)
         {
-            ShowMessage = message => MessageBox.Show(message, "35Viewer", MessageBoxButton.OK, MessageBoxImage.Warning),
+            ShowMessage = message => ConfirmDialog.Inform(MainWindow, "35Viewer", message),
         };
         _exceptionReporter.Attach(Dispatcher);
 
@@ -100,11 +100,14 @@ public partial class App : Application
         catch (Exception ex)
         {
             LogDatabaseInitializationFailed(logger, ex);
-            MessageBox.Show(
-                $"データベースの初期化に失敗しました。\n{ex.Message}\n\nログ: {paths.LogsDirectory}",
+
+            // ダイアログを閉じたときに（最後のウィンドウが閉じたとして）終了コード 0 で終わらないよう、終了は明示的に行う
+            ShutdownMode = ShutdownMode.OnExplicitShutdown;
+            ConfirmDialog.Inform(
+                null,
                 "35Viewer",
-                MessageBoxButton.OK,
-                MessageBoxImage.Error);
+                "データベースの初期化に失敗しました。",
+                $"{ex.Message}{Environment.NewLine}{Environment.NewLine}ログ: {paths.LogsDirectory}");
             Shutdown(1);
             return;
         }

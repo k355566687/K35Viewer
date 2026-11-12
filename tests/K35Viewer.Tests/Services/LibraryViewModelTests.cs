@@ -122,7 +122,8 @@ public class LibraryViewModelTests
         Assert.Equal(2, viewModel.FolderRoots.Count); // 「すべて」と登録フォルダ
         Assert.Equal("すべて", viewModel.FolderRoots[0].Header);
         Assert.True(viewModel.FolderRoots[0].IsSelected);
-        Assert.Equal(ctx.Workspace, viewModel.FolderRoots[1].Header);
+        Assert.Equal(Path.GetFileName(ctx.Workspace), viewModel.FolderRoots[1].Header); // 管理フォルダは名前だけを表示する
+        Assert.Equal(ctx.Workspace, viewModel.FolderRoots[1].FullPath);
         Assert.True(viewModel.FolderRoots[1].IsExpanded);
         Assert.Equal(3, viewModel.Archives.Count);
         Assert.Equal(3, viewModel.TotalCount);

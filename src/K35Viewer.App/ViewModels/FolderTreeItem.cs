@@ -1,5 +1,6 @@
 using CommunityToolkit.Mvvm.ComponentModel;
 using K35Viewer.Domain;
+using K35Viewer.Infrastructure.FileSystem;
 
 namespace K35Viewer.ViewModels;
 
@@ -49,7 +50,9 @@ public sealed partial class FolderTreeItem : ObservableObject
     {
         ArgumentNullException.ThrowIfNull(node);
 
-        var header = node.IsUnavailable ? node.Name + "(接続なし)" : node.Name;
+        // 管理フォルダもフォルダ名だけを表示する（フルパスは長く、狭いツリーでは途中で切れるため。ツールチップで示す）
+        var name = node.IsLibraryRoot ? PathNormalizer.GetDisplayName(node.FullPath) : node.Name;
+        var header = node.IsUnavailable ? name + "(接続なし)" : name;
         return new FolderTreeItem(
             node.Id,
             header,

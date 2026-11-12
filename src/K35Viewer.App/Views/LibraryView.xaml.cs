@@ -20,12 +20,41 @@ public partial class LibraryView : UserControl
         DataContextChanged += OnDataContextChanged;
         Loaded += async (_, _) =>
         {
+            ApplyCompactRows();
             if (DataContext is LibraryViewModel viewModel)
             {
                 await viewModel.InitializeAsync();
             }
         };
     }
+
+    /// <summary>詳細表示の行の最小の高さ。テーマの既定（約40）より詰めて、1画面に表示できる行を増やす。</summary>
+    private const double CompactRowMinHeight = 30;
+
+    /// <summary>
+    /// 詳細表示の行を詰める。テーマの行の見た目（選択の表示など）を引き継ぐため、テーマが実際に当てている行のスタイルを
+    /// 元にして、高さと余白だけを変える。XAML の BasedOn では、読み込みの時点でテーマのスタイルを見つけられない場合があるため、
+    /// 画面に置かれてから行う。
+    /// </summary>
+    private void ApplyCompactRows()
+    {
+        if (_compactRowsApplied)
+        {
+            return;
+        }
+
+        _compactRowsApplied = true;
+
+        // テーマ（Fluent）は、一覧のスタイルで行のスタイル（ItemContainerStyle）を指定している。あればそれを、なければ
+        // 行の既定のスタイルを元にする
+        var baseStyle = DetailList.ItemContainerStyle ?? DetailList.TryFindResource(typeof(ListViewItem)) as Style;
+        var style = new Style(typeof(ListViewItem), baseStyle);
+        style.Setters.Add(new Setter(MinHeightProperty, CompactRowMinHeight));
+        style.Setters.Add(new Setter(Control.PaddingProperty, new Thickness(4, 2, 4, 2)));
+        DetailList.ItemContainerStyle = style;
+    }
+
+    private bool _compactRowsApplied;
 
     private LibraryViewModel? ViewModel => DataContext as LibraryViewModel;
 
@@ -39,6 +68,7 @@ public partial class LibraryView : UserControl
         if (e.NewValue is LibraryViewModel newViewModel)
         {
             newViewModel.ScrollToRowRequested += OnScrollToRowRequested;
+            UpdateThumbnailColumns();
         }
     }
 
@@ -167,9 +197,48 @@ public partial class LibraryView : UserControl
         }
     }
 
+    /// <summary>ファイル名の列の最小の幅。これより狭くなる場合だけ、横スクロールが出る。</summary>
+    private const double MinFileNameColumnWidth = 160;
+
+    // 詳細表示: ファイル名の列を、残りの幅いっぱいにする（他の列は固定の幅。横スクロールを出さない）
+    private void OnDetailListSizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (DetailList.View is not GridView grid)
+        {
+            return;
+        }
+
+        var others = grid.Columns.Where(c => !ReferenceEquals(c, FileNameColumn)).Sum(c => c.ActualWidth);
+        var available = e.NewSize.Width - others - SystemParameters.VerticalScrollBarWidth - DetailList.BorderThickness.Left
+            - DetailList.BorderThickness.Right - DetailList.Padding.Left - DetailList.Padding.Right - 12;
+        FileNameColumn.Width = Math.Max(MinFileNameColumnWidth, available);
+    }
+
     // サムネイル表示の領域の幅に合わせて、1行に並べる枚数を決め直す(縦スクロールバーの幅は除く)
-    private void OnThumbnailListSizeChanged(object sender, SizeChangedEventArgs e) =>
-        ViewModel?.UpdateViewportWidth(e.NewSize.Width - SystemParameters.VerticalScrollBarWidth - 8);
+    private void OnThumbnailListSizeChanged(object sender, SizeChangedEventArgs e) => UpdateThumbnailColumns();
+
+    // 一覧が表示されたとき（詳細表示から切り替えたとき）にも決め直す。大きさは変わらないため、SizeChanged が起きない
+    private void OnThumbnailListIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e) => UpdateThumbnailColumns();
+
+    /// <summary>
+    /// 一覧の今の幅から、1行に並べる枚数を決め直す。起動直後は、ViewModel がつながる前に大きさが決まることがあるため、
+    /// 大きさの変化だけでなく、ViewModel がつながったとき・一覧が表示されたときにも行う。
+    /// </summary>
+    private void UpdateThumbnailColumns()
+    {
+        if (ThumbnailList.ActualWidth > 0)
+        {
+            ViewModel?.UpdateViewportWidth(UsableWidth(ThumbnailList, ThumbnailList.ActualWidth));
+        }
+    }
+
+    /// <summary>
+    /// 一覧の中で、カードを並べるのに使える幅。一覧の枠と内側の余白、縦スクロールバーの幅を除く
+    /// （テーマによって、一覧の内側に余白がある）。
+    /// </summary>
+    internal static double UsableWidth(Control list, double width) =>
+        width - list.BorderThickness.Left - list.BorderThickness.Right - list.Padding.Left - list.Padding.Right
+        - SystemParameters.VerticalScrollBarWidth - 4;
 
     private void OnTreeSelectedItemChanged(object sender, RoutedPropertyChangedEventArgs<object> e)
     {

@@ -110,14 +110,18 @@
             </Border>
         </DataTemplate>
 
-        <!-- 一覧表示の1行分。選択やフォーカスの枠は付けない -->
+        <!--
+            一覧表示の1行分。選択やフォーカスの枠は付けない。
+            エクスプローラーと同じく、カードの大きさは変えずに、余った幅をカードの間へ均等に分ける（ライブラリ画面と同じ）。
+        -->
         <DataTemplate x:Key="PageRowTemplate">
             <ItemsControl ItemsSource="{Binding Items}"
                           ItemTemplate="{StaticResource PageCell}"
                           Focusable="False">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" />
+                        <UniformGrid Rows="1"
+                                     Columns="{Binding DataContext.ColumnCount, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
             </ItemsControl>
@@ -296,7 +300,8 @@
                      ScrollViewer.CanContentScroll="True"
                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                      Visibility="{Binding IsListView, Converter={StaticResource BoolToVisibility}}"
-                     SizeChanged="OnPageListSizeChanged">
+                     SizeChanged="OnPageListSizeChanged"
+                     IsVisibleChanged="OnPageListIsVisibleChanged">
                 <ListBox.ItemContainerStyle>
                     <Style TargetType="ListBoxItem">
                         <Setter Property="Focusable" Value="False" />

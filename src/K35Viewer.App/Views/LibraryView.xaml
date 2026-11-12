@@ -72,17 +72,31 @@
             </StackPanel>
         </DataTemplate>
 
-        <!-- サムネイル表示の1行分。選択やフォーカスの枠は付けない -->
+        <!--
+            サムネイル表示の1行分。選択やフォーカスの枠は付けない。
+            エクスプローラーと同じく、カードの大きさは変えずに、余った幅をカードの間へ均等に分ける
+            （1行の枚数ぶんの等しい幅の枠に、カードを中央に置く。最後の行も同じ枠に並ぶため、列がそろう）。
+            もう1枚入る幅になると、1行の枚数が増える（LibraryViewModel.ColumnCount）。
+        -->
         <DataTemplate x:Key="ThumbnailRowTemplate">
             <ItemsControl ItemsSource="{Binding Items}"
                           ItemTemplate="{StaticResource ThumbnailCell}"
                           Focusable="False">
                 <ItemsControl.ItemsPanel>
                     <ItemsPanelTemplate>
-                        <StackPanel Orientation="Horizontal" />
+                        <UniformGrid Rows="1"
+                                     Columns="{Binding DataContext.ColumnCount, RelativeSource={RelativeSource AncestorType=ListBox}}" />
                     </ItemsPanelTemplate>
                 </ItemsControl.ItemsPanel>
             </ItemsControl>
+        </DataTemplate>
+
+        <!-- 詳細表示の文字の列。列の幅に収まらない部分は「…」で省略し、全体はツールチップで示す -->
+        <DataTemplate x:Key="FileNameCell">
+            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FileName}" />
+        </DataTemplate>
+        <DataTemplate x:Key="LocationCell">
+            <TextBlock Text="{Binding LocationText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Location}" />
         </DataTemplate>
     </UserControl.Resources>
     <Grid>
@@ -111,26 +125,30 @@
                        Text="ライブラリ"
                        FontWeight="SemiBold"
                        Margin="0,0,0,6" />
+            <!-- 長い名前は右端で切れるにまかせ、横スクロールは出さない（ツールチップでフルパスを示す） -->
             <TreeView x:Name="FolderTree"
                       ItemsSource="{Binding FolderRoots}"
                       AutomationProperties.Name="フォルダツリー"
                       VirtualizingPanel.IsVirtualizing="True"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                       SelectedItemChanged="OnTreeSelectedItemChanged">
                 <TreeView.ContextMenu>
                     <ContextMenu>
                         <MenuItem Header="管理対象から外す" Click="OnRemoveFolderMenuClick" />
                     </ContextMenu>
                 </TreeView.ContextMenu>
+                <!-- テーマの見た目（選択の表示など）を引き継ぐ。BasedOn がないと、古い見た目に戻る -->
                 <TreeView.ItemContainerStyle>
-                    <Style TargetType="TreeViewItem">
+                    <Style TargetType="TreeViewItem" BasedOn="{StaticResource {x:Type TreeViewItem}}">
                         <Setter Property="IsExpanded" Value="{Binding IsExpanded, Mode=TwoWay}" />
                         <Setter Property="IsSelected" Value="{Binding IsSelected, Mode=TwoWay}" />
                         <Setter Property="AutomationProperties.Name" Value="{Binding Header}" />
+                        <Setter Property="ToolTip" Value="{Binding FullPath}" />
                     </Style>
                 </TreeView.ItemContainerStyle>
                 <TreeView.ItemTemplate>
                     <HierarchicalDataTemplate ItemsSource="{Binding Children}">
-                        <TextBlock Text="{Binding Header}" Margin="2,2" />
+                        <TextBlock Text="{Binding Header}" TextTrimming="CharacterEllipsis" />
                     </HierarchicalDataTemplate>
                 </TreeView.ItemTemplate>
             </TreeView>
@@ -145,16 +163,16 @@
 
         <!-- 中央: 検索・並べ替え・一覧 -->
         <DockPanel Grid.Column="2" Margin="12">
+            <!-- 1行目: 一覧の絞り込みと見せ方（検索・並べ替え・表示の切替） -->
             <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8">
                 <TextBlock Text="検索" VerticalAlignment="Center" Margin="0,0,6,0" />
                 <TextBox Width="240"
                          Text="{Binding SearchText, UpdateSourceTrigger=PropertyChanged}"
                          VerticalContentAlignment="Center"
-                         Padding="4,3"
                          ToolTip="ファイル名の一部を入力(空白で区切ると、すべてを含むものに絞り込みます)"
                          AutomationProperties.Name="ファイル名で検索" />
-                <TextBlock Text="並べ替え" VerticalAlignment="Center" Margin="16,0,6,0" />
-                <ComboBox Width="130"
+                <TextBlock Text="並べ替え" VerticalAlignment="Center" Margin="20,0,6,0" />
+                <ComboBox Width="140"
                           ItemsSource="{Binding SortOptions}"
                           SelectedItem="{Binding SelectedSortOption}"
                           DisplayMemberPath="Label"
@@ -162,33 +180,41 @@
                 <CheckBox Content="降順"
                           IsChecked="{Binding IsDescending}"
                           VerticalAlignment="Center"
+                          MinWidth="0"
                           Margin="10,0,0,0"
                           AutomationProperties.Name="降順で並べ替え" />
-                <TextBlock Text="表示" VerticalAlignment="Center" Margin="16,0,6,0" />
+                <TextBlock Text="表示" VerticalAlignment="Center" Margin="20,0,6,0" />
+                <!-- テーマの既定の最小幅（120）では、選択肢の間が大きく空くため詰める -->
                 <RadioButton Content="詳細"
                              GroupName="ViewMode"
                              IsChecked="{Binding IsDetailView}"
                              VerticalAlignment="Center"
+                             MinWidth="0"
                              AutomationProperties.Name="詳細表示" />
                 <RadioButton Content="サムネイル"
                              GroupName="ViewMode"
                              IsChecked="{Binding IsThumbnailView}"
                              VerticalAlignment="Center"
-                             Margin="10,0,0,0"
+                             MinWidth="0"
+                             Margin="14,0,0,0"
                              AutomationProperties.Name="サムネイル表示" />
-                <Button Content="再スキャン"
-                        Command="{Binding RescanCommand}"
-                        Padding="12,3"
-                        Margin="16,0,0,0"
-                        AutomationProperties.Name="ライブラリを再スキャン" />
-                <TextBlock Text="スキャン中…"
-                           Margin="12,0,0,0"
-                           VerticalAlignment="Center"
-                           Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
             </WrapPanel>
 
-            <!-- 選択中のアーカイブへの操作（右クリックメニューと同じ） -->
-            <WrapPanel DockPanel.Dock="Top" Margin="0,0,0,8" AutomationProperties.Name="選択中のアーカイブへの操作">
+            <!-- 2行目: 選択中のアーカイブへの操作（右クリックメニューと同じ）と、ライブラリ全体の再スキャン（右端） -->
+            <DockPanel DockPanel.Dock="Top" Margin="0,0,0,8" LastChildFill="False">
+                <StackPanel DockPanel.Dock="Right" Orientation="Horizontal">
+                    <TextBlock Text="スキャン中…"
+                               Margin="0,0,10,0"
+                               VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                               Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
+                    <Button Content="再スキャン"
+                            Command="{Binding RescanCommand}"
+                            Padding="12,3"
+                            ToolTip="管理フォルダの中を調べ直して、追加・変更・削除を反映します"
+                            AutomationProperties.Name="ライブラリを再スキャン" />
+                </StackPanel>
+            <WrapPanel DockPanel.Dock="Left" AutomationProperties.Name="選択中のアーカイブへの操作">
                 <Button Content="開く"
                         Command="{Binding OpenSelectedCommand}"
                         Padding="12,3"
@@ -218,6 +244,7 @@
                         Margin="6,0,0,0"
                         AutomationProperties.Name="選択中のアーカイブをエクスプローラーで表示" />
             </WrapPanel>
+            </DockPanel>
 
             <DockPanel DockPanel.Dock="Bottom" Margin="0,6,0,0" LastChildFill="False">
                 <TextBlock DockPanel.Dock="Left"
@@ -242,7 +269,9 @@
                           ScrollViewer.CanContentScroll="True"
                           MouseDoubleClick="OnArchiveListMouseDoubleClick"
                           KeyDown="OnArchiveListKeyDown"
+                          SizeChanged="OnDetailListSizeChanged"
                           Visibility="{Binding IsDetailView, Converter={StaticResource BoolToVisibility}}">
+                    <!-- 行の高さは、テーマの見た目を引き継いだうえで画面側で詰める（ApplyCompactRows） -->
                     <ListView.ContextMenu>
                         <ContextMenu>
                             <MenuItem Header="開く" Click="OnOpenMenuClick" />
@@ -254,12 +283,13 @@
                         </ContextMenu>
                     </ListView.ContextMenu>
                     <ListView.View>
+                        <!-- ファイル名の列の幅は、残りの幅に合わせて画面側で決める（横スクロールを出さないため。OnDetailListSizeChanged） -->
                         <GridView>
-                            <GridViewColumn Header="ファイル名" Width="320" DisplayMemberBinding="{Binding FileName}" />
-                            <GridViewColumn Header="保存場所" Width="320" DisplayMemberBinding="{Binding Location}" />
+                            <GridViewColumn x:Name="FileNameColumn" Header="ファイル名" Width="320" CellTemplate="{StaticResource FileNameCell}" />
+                            <GridViewColumn Header="保存場所" Width="220" CellTemplate="{StaticResource LocationCell}" />
                             <GridViewColumn Header="画像枚数" Width="80" DisplayMemberBinding="{Binding ImageCountText}" />
                             <GridViewColumn Header="ファイルサイズ" Width="110" DisplayMemberBinding="{Binding FileSizeText}" />
-                            <GridViewColumn Header="更新日時" Width="140" DisplayMemberBinding="{Binding LastWriteTimeText}" />
+                            <GridViewColumn Header="更新日時" Width="150" DisplayMemberBinding="{Binding LastWriteTimeText}" />
                         </GridView>
                     </ListView.View>
                 </ListView>
@@ -274,7 +304,8 @@
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
                          Visibility="{Binding IsThumbnailView, Converter={StaticResource BoolToVisibility}}"
                          KeyDown="OnThumbnailListKeyDown"
-                         SizeChanged="OnThumbnailListSizeChanged">
+                         SizeChanged="OnThumbnailListSizeChanged"
+                         IsVisibleChanged="OnThumbnailListIsVisibleChanged">
                     <ListBox.ItemContainerStyle>
                         <Style TargetType="ListBoxItem">
                             <Setter Property="Focusable" Value="False" />

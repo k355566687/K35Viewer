@@ -23,7 +23,10 @@ public sealed record ArchiveQuery(
     int? Offset = null,
     int? Limit = null);
 
-/// <summary>一覧表示用のアーカイブ情報。ZIP本体を開かずにDBの値だけで組み立てる。</summary>
+/// <summary>
+/// 一覧表示用のアーカイブ情報。ZIP本体を開かずにDBの値だけで組み立てる。
+/// LibraryRootPath は、このアーカイブが属する管理フォルダのパス（保存場所を管理フォルダからの相対パスで表示するため）。
+/// </summary>
 public sealed record ArchiveSummary(
     long Id,
     string FileName,
@@ -33,7 +36,8 @@ public sealed record ArchiveSummary(
     int? ImageCount,
     string AnalysisStatus,
     string? ThumbnailPath = null,
-    string? ThumbnailStatus = null)
+    string? ThumbnailStatus = null,
+    string? LibraryRootPath = null)
 {
     public string FullPath => Path.Combine(FolderPath, FileName);
 }
