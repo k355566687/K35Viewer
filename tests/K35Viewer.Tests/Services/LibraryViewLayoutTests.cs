@@ -33,12 +33,14 @@ public class LibraryViewLayoutTests
         List<Rect> cards = [];
         Rect viewport = default;
         var columns = 0;
+        double viewWidth = 0;
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            // 実際のアプリと同じく、画面の大きさが決まってから ViewModel がつながる（メインウィンドウのバインディング）
-            var view = new LibraryView();
-            var window = WpfTestHelper.WithAppTheme(new Window { Width = windowWidth, Height = 800, Content = view });
+            // 実際のアプリと同じく、画面の大きさが決まってから ViewModel がつながる（メインウィンドウのバインディング）。
+            // 大きさは、画面の大きさによらないよう、ウィンドウではなく画面（View）に指定する（ウィンドウは画面より大きくできない）
+            var view = new LibraryView { Width = windowWidth, Height = 800 };
+            var window = WpfTestHelper.WithAppTheme(new Window { SizeToContent = SizeToContent.WidthAndHeight, Content = view });
             window.Show();
             WpfTestHelper.Pump();
             view.DataContext = library;
@@ -57,8 +59,11 @@ public class LibraryViewLayoutTests
                 .Select(p => BoundsIn(p, list))
                 .OrderBy(r => r.Left)];
             columns = library.ColumnCount;
+            viewWidth = view.ActualWidth;
             window.Close();
         });
+
+        Assert.Equal(windowWidth, viewWidth, 0.5); // 指定した幅で確かめている
 
         // 1行目のカード（4件。幅が狭ければ、1行目は1行の枚数ぶん）
         Assert.InRange(columns, 1, 20);
@@ -88,12 +93,15 @@ public class LibraryViewLayoutTests
         var library = harness.Library;
         var horizontal = Visibility.Visible;
         var locations = new List<string>();
-        double rowHeight = 0;
+        double rowHeight = 0, viewWidth = 0;
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            var view = new LibraryView { DataContext = library };
-            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
+            // 画面の大きさによらないよう、ウィンドウではなく画面（View）に大きさを指定する。
+            // ウィンドウは画面より大きくできないため、CI のような小さな画面（1024×768 など）では、ウィンドウが縮められて
+            // 一覧が狭くなり、ファイル名の列が最小の幅になって横スクロールが出る（狭い画面では、それが正しい動き）
+            var view = new LibraryView { DataContext = library, Width = 1280, Height = 800 };
+            var window = WpfTestHelper.WithAppTheme(new Window { SizeToContent = SizeToContent.WidthAndHeight, Content = view });
             window.Show();
             WpfTestHelper.Pump();
             WpfTestHelper.Pump();
@@ -103,9 +111,11 @@ public class LibraryViewLayoutTests
             var rows = WpfTestHelper.Descendants<ListViewItem>(list).ToList();
             rowHeight = rows[0].ActualHeight;
             locations.AddRange(rows.Select(r => ((ArchiveListItem)r.DataContext).LocationText));
+            viewWidth = view.ActualWidth;
             window.Close();
         });
 
+        Assert.Equal(1280, viewWidth, 0.5); // 指定した幅で確かめている
         Assert.Equal(Visibility.Collapsed, horizontal);
         Assert.InRange(rowHeight, 1, 36); // 行を詰めた（以前は約42）
         var root = Path.GetFileName(ctx.Workspace);
