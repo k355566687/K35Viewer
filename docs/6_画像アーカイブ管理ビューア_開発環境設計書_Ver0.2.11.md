@@ -1,8 +1,8 @@
 # 画像アーカイブ管理ビューア 開発環境設計書
 
-**文書バージョン:** Ver.0.2.10（5.3 外観（テーマ）、11.5 データの配置先の切り替え、15.5 画面の確認用のサンプル、19章 画面の見た目の確認を追加）  
+**文書バージョン:** Ver.0.2.11（16.4 GitHub、17.4 リリース、18章 CI（GitHub Actions）を確定。Ver.0.2.10: 5.3 外観（テーマ）、11.5 データの配置先の切り替え、15.5 画面の確認用のサンプル、19章 画面の見た目の確認を追加）  
 **作成日:** 2026-11-06  
-**更新日:** 2026-11-12  
+**更新日:** 2026-11-13  
 **対象:** MVP
 
 ## 1. 目的
@@ -768,6 +768,12 @@ thumbnails/
 temp/
 ```
 
+### 16.4 リポジトリ（GitHub）
+
+- 公開リポジトリ: https://github.com/k355566687/K35Viewer （ライセンスは MIT。`LICENSE`、`README.md`）
+- コミットの作者は、アカウント名と GitHub の noreply のアドレス（`356038743+k355566687@users.noreply.github.com`）にする。このリポジトリだけの設定（`git config --local`）とし、PC全体の設定は変えない。公開の前に、それまでの履歴の作者も、このアドレスに書き換えた
+- push には GitHub CLI（`gh`）のログインを使う。このリポジトリだけ、`credential.https://github.com.helper` を `gh auth git-credential` にしている（Windows の資格情報マネージャーに保存された、別のアカウントを使わないため）
+
 ## 17. ビルド・配布方針
 
 ### 17.1 開発用
@@ -808,18 +814,39 @@ MVP内部試用ではフォルダ配布を基本とする。
 
 正式配布時にMSIXまたはインストーラーを検討する。
 
+### 17.4 リリース
+
+配布物は、GitHub のリリースに ZIP（`K35Viewer-v〈バージョン〉-win-x64.zip`。17.2 のフォルダをまとめたもの）として添付する。
+
+- バージョンは `K35Viewer.App.csproj` の `Version` に書き、タグ（`v0.1.0` など）と合わせる。実行ファイルのプロパティには、バージョンとコミット（`0.1.0+〈コミットのID〉`）が入る
+- 1.0 より前の版は、試用版（Pre-release）とする
+- 実行ファイルには署名をしていない。初回の起動時に Windows の警告（SmartScreen）が出ることがあるため、リリースノートに対処（「詳細情報」→「実行」）を書く。署名は、広く配るときに検討する（オープンソース向けの無料の署名サービス等。GitHub Actions でビルドすることが条件になるものが多い）
+
+手順:
+
+1. `K35Viewer.App.csproj` の `Version` を上げてコミットし、push する
+2. 注釈付きのタグを付けて push する（`git tag -a v0.2.0 -m "35Viewer v0.2.0"`、`git push origin v0.2.0`）
+3. GitHub Actions（18章の Release）が、テスト・配布物の作成を行い、ZIP を添付したリリースを**下書き**で作る。タグと `Version` が違えば失敗する
+4. GitHub の画面で、リリースノートを確かめて公開する
+
+v0.1.0 は、GitHub Actions を作る前に、手元で作って添付した。
+
 ## 18. CI方針
 
-リポジトリ環境が決まった時点で、GitHub ActionsまたはAzure Pipelinesを選択する。
+GitHub Actions を使う（`.github/workflows/`）。Windows固有のWPFビルドと、ウィンドウを表示するテストがあるため、Windows のランナー（`windows-latest`）を使う。
 
-MVPで最低限行う処理:
+| ワークフロー | 動くとき | 行うこと |
+|---|---|---|
+| CI（`ci.yml`） | main への push、プルリクエスト、手動 | restore → build（Release）→ test（Release）。テスト結果（TRX）を成果物（Artifacts）に置く（失敗したときも） |
+| Release（`release.yml`） | タグ（`v*`）の push | バージョンの確認 → `scripts\publish.ps1`（テスト → 発行）→ ZIP → リリースの下書きを作る（17.4） |
+| Release（手動で実行） | 手動 | 上と同じく ZIP まで作り、成果物に置く。リリースは作らない（確認用） |
 
-1. `dotnet restore`
-2. `dotnet build -c Release`
-3. `dotnet test -c Release`
-4. テスト結果とカバレッジ出力
-
-Windows固有のWPFビルドと統合テストがあるため、Windows runnerを使用する。
+- SDK は `global.json` に合わせて入れる（`actions/setup-dotnet` の `global-json-file`）
+- 使う action（`actions/checkout`、`actions/setup-dotnet`、`actions/upload-artifact`）は、コミットのIDで固定する（タグが差し替えられても、知らない内容が動かないようにするため）
+- 権限は最小にする（CI は読み取りだけ。Release は、リリースを作るため `contents: write`）
+- 実際のごみ箱を使う統合テストは、環境変数を指定しないため、CI では実行しない
+- カバレッジは、まだ出していない（今のテストの実行方式（Microsoft.Testing.Platform）では、`coverlet.collector` が使えないため。出すなら、`Microsoft.Testing.Extensions.CodeCoverage` を追加する）
+- **ランナーの画面は、開発機より小さい**（大きさは確かめていないが、幅1280のウィンドウが縮められたことから、1280より狭い）。ウィンドウは画面より大きくできないため、ウィンドウに大きさを指定するテストは、ウィンドウが縮められて、手元と違う結果になる。画面の大きさに関わるテストは、ウィンドウではなく画面（View）に大きさを指定し、その大きさで確かめていることも確認する（`LibraryViewLayoutTests`）。最初の CI で、この理由で1件が失敗した
 
 ## 19. 実装順序
 
@@ -1091,6 +1118,6 @@ Windows固有のWPFビルドと統合テストがあるため、Windows runner�
 6. SQLite接続を操作単位で開閉し、書き込みのみ単一キュー化する方針でよいか。
 7. x64専用でMVPを開始してよいか。
 8. （確定）MVP試用版は、self-containedのフォルダ配布とする（17.2。`scripts\publish.ps1`）。
-9. Gitホスティング先をGitHub、Azure DevOps、社内Gitのどれにするか。
-10. CIをMVP開始時から入れるか、Phase 3完了後に入れるか。
+9. （確定）Gitホスティング先は GitHub の公開リポジトリとする（16.4）。
+10. （確定）CIは、MVPの完了後に GitHub Actions で入れた（18章）。
 11. （確定）MVPの外観は、Fluent テーマのダークに固定する（5.3）。ライト / Windowsの設定に合わせる、の選択は、設定画面（画面一覧 8.2）とあわせて将来対応する。
