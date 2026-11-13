@@ -13,6 +13,7 @@ public sealed class AppPaths
         ThumbnailsDirectory = Path.Combine(root, "thumbnails");
         LogsDirectory = Path.Combine(root, "logs");
         TempDirectory = Path.Combine(root, "temp");
+        SettingsFile = Path.Combine(root, "settings.json");
     }
 
     public string Root { get; }
@@ -24,6 +25,9 @@ public sealed class AppPaths
     public string LogsDirectory { get; }
 
     public string TempDirectory { get; }
+
+    /// <summary>設定のファイル（要件定義 24.1）。</summary>
+    public string SettingsFile { get; }
 
     /// <summary>実行時データの配置先を切り替える環境変数（画面の確認用のサンプルデータなど、普段のライブラリに触れないため）。</summary>
     public const string DataRootVariable = "K35VIEWER_DATA_ROOT";

@@ -33,6 +33,10 @@ public class LibraryViewModelTests
         public bool ConfirmPermanentDelete(string fileName, string reason) => false;
 
         public bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount) => false;
+
+        public int SettingsShown { get; private set; }
+
+        public void ShowSettings() => SettingsShown++;
     }
 
     private static LibraryViewModel CreateViewModel(LibraryTestContext ctx, FakeDialogService? dialogs = null) =>

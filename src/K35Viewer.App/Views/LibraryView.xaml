@@ -108,18 +108,33 @@
 
         <!-- 左ナビゲーション: フォルダツリーとフォルダ追加 -->
         <DockPanel Grid.Column="0" Margin="12">
+            <!-- 設定は、左下（最下部）に置く（画面一覧 8.3） -->
+            <Button DockPanel.Dock="Bottom"
+                    Content="⚙ 設定"
+                    Command="{Binding OpenSettingsCommand}"
+                    Padding="14,6"
+                    Margin="0,8,0,0"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    ToolTip="外観、データ（バックアップ）、アプリの更新などの設定を開きます"
+                    AutomationProperties.Name="設定を開く" />
             <Button DockPanel.Dock="Bottom"
                     Content="管理対象から外す"
                     Command="{Binding RemoveSelectedFolderCommand}"
                     Padding="14,6"
                     Margin="0,8,0,0"
-                    ToolTip="選択中の管理フォルダ（ツリーの最上位のフォルダ）を、管理対象から外します。ファイルは削除されません"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
+                    ToolTip="{Binding RemoveFolderToolTip}"
+                    ToolTipService.ShowOnDisabled="True"
                     AutomationProperties.Name="選択中の管理フォルダを管理対象から外す" />
             <Button DockPanel.Dock="Bottom"
                     Content="＋ フォルダを追加"
                     Command="{Binding AddFolderCommand}"
                     Padding="14,6"
                     Margin="0,8,0,0"
+                    HorizontalAlignment="Stretch"
+                    HorizontalContentAlignment="Center"
                     AutomationProperties.Name="管理フォルダを追加" />
             <TextBlock DockPanel.Dock="Top"
                        Text="ライブラリ"

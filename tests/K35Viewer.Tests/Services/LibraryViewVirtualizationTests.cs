@@ -33,6 +33,10 @@ public class LibraryViewVirtualizationTests
         public bool ConfirmPermanentDelete(string fileName, string reason) => false;
 
         public bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount) => false;
+
+        public void ShowSettings()
+        {
+        }
     }
 
     private static void RunOnStaThread(Action action) => WpfTestHelper.RunOnStaThread(action);

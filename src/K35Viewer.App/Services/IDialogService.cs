@@ -50,4 +50,7 @@ public interface IDialogService
 
     /// <summary>管理フォルダを管理対象から外すことを確認する（DLG-03）。ファイル自体は削除されない。</summary>
     bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount);
+
+    /// <summary>設定画面（SCR-03）を開く。閉じるまで戻らない（変更は、開いている間にその場で反映される）。</summary>
+    void ShowSettings();
 }

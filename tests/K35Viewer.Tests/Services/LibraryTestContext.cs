@@ -138,6 +138,30 @@ internal sealed class FakeExplorerLauncher : IExplorerLauncher
 
         Revealed.Add(fullPath);
     }
+
+    public List<string> OpenedFolders { get; } = [];
+
+    public List<Uri> OpenedWebPages { get; } = [];
+
+    public void OpenFolder(string fullPath)
+    {
+        if (Failure is not null)
+        {
+            throw Failure;
+        }
+
+        OpenedFolders.Add(fullPath);
+    }
+
+    public void OpenWebPage(Uri url)
+    {
+        if (Failure is not null)
+        {
+            throw Failure;
+        }
+
+        OpenedWebPages.Add(url);
+    }
 }
 
 /// <summary>
@@ -303,6 +327,13 @@ internal sealed class LibraryTestContext : IDisposable
     public Task<Microsoft.Data.Sqlite.SqliteConnection> OpenAsync() => _db.OpenAsync();
 
     public string PathOf(string relative) => Path.Combine(Workspace, relative);
+
+    /// <summary>設定のファイル（テストの後始末で消える、キャッシュのフォルダの中）。</summary>
+    public string SettingsFile => Path.Combine(CacheDirectory, "settings.json");
+
+    /// <summary>設定のサービスを作る。同じファイルを使うため、作り直すとアプリの再起動に相当する。</summary>
+    public K35Viewer.Services.SettingsService CreateSettings() =>
+        new(new K35Viewer.Infrastructure.Settings.SettingsStore(SettingsFile), NullLogger<K35Viewer.Services.SettingsService>.Instance);
 
     /// <summary>中身は空のダミーファイルを作る(Phase 2ではZIPの内容を読まない)。</summary>
     public string CreateFile(string relative, int size = 10, DateTime? lastWriteUtc = null)

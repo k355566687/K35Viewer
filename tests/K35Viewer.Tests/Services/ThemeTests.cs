@@ -27,8 +27,13 @@ public partial class ThemeTests
         return Path.Combine(directory.FullName, "src", "K35Viewer.App");
     }
 
-    [Fact]
-    public void XAMLで参照している色は_すべてダークのテーマの中にある()
+    public static TheoryData<string> Themes => ["Dark", "Light"];
+
+    private static ThemeMode ToMode(string name) => name == "Light" ? ThemeMode.Light : ThemeMode.Dark;
+
+    [Theory]
+    [MemberData(nameof(Themes))]
+    public void XAMLで参照している色は_すべてのテーマの中にある(string theme)
     {
         var keys = Directory.EnumerateFiles(ViewsDirectory(), "*.xaml", SearchOption.AllDirectories)
             .Where(path => !path.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal)
@@ -41,7 +46,7 @@ public partial class ThemeTests
 
         WpfTestHelper.RunOnStaThread(() =>
         {
-            var window = WpfTestHelper.WithAppTheme(new Window());
+            var window = WpfTestHelper.WithAppTheme(new Window(), ToMode(theme));
             missing.AddRange(keys.Where(key => window.TryFindResource(key) is not Brush));
         });
 
@@ -63,6 +68,31 @@ public partial class ThemeTests
 
         Assert.True(Luminance(background) < 0.2, $"背景が暗くありません: {background}");
         Assert.True(Luminance(text) > 0.8, $"文字が明るくありません: {text}");
+    }
+
+    [Fact]
+    public void ライトのテーマでは_画面の背景が明るく_文字が暗い()
+    {
+        Color background = default, text = default;
+
+        WpfTestHelper.RunOnStaThread(() =>
+        {
+            var window = WpfTestHelper.WithAppTheme(new Window(), ThemeMode.Light);
+            background = ((SolidColorBrush)window.FindResource("ApplicationBackgroundBrush")).Color;
+            text = ((SolidColorBrush)window.FindResource("TextFillColorPrimaryBrush")).Color;
+        });
+
+        Assert.True(Luminance(background) > 0.8, $"背景が明るくありません: {background}");
+        Assert.True(Luminance(text) < 0.3, $"文字が暗くありません: {text}");
+    }
+
+    [Theory]
+    [InlineData(K35Viewer.Infrastructure.Settings.AppTheme.Dark, "Dark")]
+    [InlineData(K35Viewer.Infrastructure.Settings.AppTheme.Light, "Light")]
+    [InlineData(K35Viewer.Infrastructure.Settings.AppTheme.System, "System")]
+    public void 設定の外観は_WPFのテーマに対応する(K35Viewer.Infrastructure.Settings.AppTheme theme, string expected)
+    {
+        Assert.Equal(expected, K35Viewer.Views.ThemeManager.ToThemeMode(theme).Value);
     }
 
     private static double Luminance(Color color) => ((0.2126 * color.R) + (0.7152 * color.G) + (0.0722 * color.B)) / 255.0;

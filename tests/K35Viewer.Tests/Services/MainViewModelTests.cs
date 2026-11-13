@@ -153,6 +153,10 @@ internal sealed class MainTestHarness : IDisposable
             RemoveFolderConfirmations.Add((folderPath, archiveCount));
             return RemoveFolderConfirmed;
         }
+
+        public void ShowSettings()
+        {
+        }
     }
 }
 

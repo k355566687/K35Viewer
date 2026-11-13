@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Windows;
 using K35Viewer.Services;
+using K35Viewer.ViewModels;
 using Microsoft.Win32;
 
 namespace K35Viewer.Views;
@@ -9,9 +10,16 @@ namespace K35Viewer.Views;
 /// WPFのダイアログ。確認は、テーマ（ダーク）に追従するアプリ内のダイアログ（<see cref="ConfirmDialog"/> など）で行う。
 /// どの確認も、既定の選択（Enter）と Esc はキャンセル。
 /// </summary>
-public sealed class WpfDialogService : IDialogService
+public sealed class WpfDialogService(Func<SettingsViewModel> createSettings) : IDialogService
 {
     private static Window? Owner => Application.Current?.MainWindow;
+
+    public void ShowSettings()
+    {
+        var dialog = new SettingsWindow(createSettings());
+        SetOwner(dialog);
+        _ = dialog.ShowDialog();
+    }
 
     public string? PickFolder()
     {

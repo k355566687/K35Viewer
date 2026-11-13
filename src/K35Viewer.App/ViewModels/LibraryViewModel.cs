@@ -1,8 +1,9 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Settings;
 using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Services;
 using Microsoft.Extensions.Logging;
@@ -25,7 +26,8 @@ public sealed partial class LibraryViewModel(
     ThumbnailImageLoader imageLoader,
     IDialogService dialogs,
     ArchiveService archives,
-    ILogger<LibraryViewModel> logger) : ObservableObject, IDisposable
+    ILogger<LibraryViewModel> logger,
+    SettingsService? settings = null) : ObservableObject, IDisposable
 {
     /// <summary>サムネイル表示の1枚の幅(余白を含む)。この幅で1行に並べる枚数を決める。</summary>
     public const double ThumbnailCellWidth = 176;
@@ -101,6 +103,7 @@ public sealed partial class LibraryViewModel(
     /// <summary>ツリーで選択中の項目。管理フォルダ自身が選ばれているときだけ、「管理対象から外す」ができる。</summary>
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
+    [NotifyPropertyChangedFor(nameof(RemoveFolderToolTip))]
     private FolderTreeItem? _selectedFolder;
 
     /// <summary>名前変更・移動・削除などの操作を実行中か。実行中は、重ねて操作できない。</summary>
@@ -111,6 +114,7 @@ public sealed partial class LibraryViewModel(
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(ShowSelectedInExplorerCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
+    [NotifyPropertyChangedFor(nameof(RemoveFolderToolTip))]
     private bool _isOperating;
 
     [ObservableProperty]
@@ -148,6 +152,7 @@ public sealed partial class LibraryViewModel(
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(RescanCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
+    [NotifyPropertyChangedFor(nameof(RemoveFolderToolTip))]
     private bool _isScanning;
 
     /// <summary>サムネイルを作成中かどうか。</summary>
@@ -174,6 +179,12 @@ public sealed partial class LibraryViewModel(
         if (_initialized)
         {
             return;
+        }
+
+        // 前回の表示方式で始める（要件定義 24.4）。ここでは保存しない（_initialized の前のため）
+        if (settings is not null)
+        {
+            IsThumbnailView = settings.Current.LibraryViewMode == LibraryViewMode.Thumbnail;
         }
 
         _initialized = true;
@@ -368,6 +379,12 @@ public sealed partial class LibraryViewModel(
         _ = await archives.ShowInExplorerAsync(SelectedArchive!.Id, _cts.Token);
         return false;
     });
+
+    /// <summary>「管理対象から外す」ボタンのツールチップ。押せないときは、その理由を示す。</summary>
+    public string RemoveFolderToolTip =>
+        IsScanning || IsOperating ? "スキャンや操作の実行中は外せません。終わってから操作してください"
+        : SelectedFolder is not { IsLibraryRoot: true } ? "管理フォルダ（ツリーの最上位のフォルダ）を選ぶと外せます"
+        : "選択中の管理フォルダを、管理対象から外します。ファイルは削除されません";
 
     private bool CanRemoveSelectedFolder() => SelectedFolder is { IsLibraryRoot: true } && !IsScanning && !IsOperating;
 
@@ -570,7 +587,21 @@ public sealed partial class LibraryViewModel(
 
     partial void OnColumnCountChanged(int value) => RebuildThumbnailRows();
 
-    partial void OnIsThumbnailViewChanged(bool value) => RebuildThumbnailRows();
+    partial void OnIsThumbnailViewChanged(bool value)
+    {
+        RebuildThumbnailRows();
+
+        // 切り替えた時点で記憶する（次に起動したときも、この表示方式で始める）
+        if (_initialized)
+        {
+            var mode = value ? LibraryViewMode.Thumbnail : LibraryViewMode.Detail;
+            settings?.Update(s => s with { LibraryViewMode = mode });
+        }
+    }
+
+    /// <summary>設定画面を開く（画面一覧 8.3）。</summary>
+    [RelayCommand]
+    private void OpenSettings() => dialogs.ShowSettings();
 
     /// <summary>
     /// サムネイル表示のときだけ、一覧を1行ずつにまとめる。詳細表示に戻したときは破棄する

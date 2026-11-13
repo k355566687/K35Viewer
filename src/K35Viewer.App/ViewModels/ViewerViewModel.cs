@@ -3,6 +3,7 @@ using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using K35Viewer.Infrastructure.Settings;
 using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Services;
@@ -33,7 +34,8 @@ public sealed partial class ViewerViewModel(
     ViewerService viewerService,
     ViewerImageDecoder decoder,
     ThumbnailGenerator thumbnailGenerator,
-    ILogger<ViewerViewModel> logger) : ObservableObject, IDisposable
+    ILogger<ViewerViewModel> logger,
+    SettingsService? settings = null) : ObservableObject, IDisposable
 {
     /// <summary>一覧表示の1枚の幅（余白を含む）。この幅で1行に並べる枚数を決める。</summary>
     public const double PageCellWidth = 176;
@@ -250,7 +252,17 @@ public sealed partial class ViewerViewModel(
         IsListView = false;
         IsOpen = true;
         UpdatePosition();
-        await ShowCurrentAsync();
+
+        // 前回の表示方式で始める（要件定義 24.4）。一覧表示では、画像本体を読み込まない
+        if (settings?.Current.ViewerViewMode == ViewerViewMode.List)
+        {
+            EnterListView();
+        }
+        else
+        {
+            await ShowCurrentAsync();
+        }
+
         return true;
     }
 
@@ -569,6 +581,11 @@ public sealed partial class ViewerViewModel(
         {
             EnterListView();
         }
+
+        // 切り替え（G、ツールバーのボタン）を記憶し、次に開いたときもこの表示方式で始める（要件定義 24.4）。
+        // 一覧でダブルクリックして1枚表示にするのは「その画像を見る」操作のため、記憶しない
+        var mode = IsListView ? ViewerViewMode.List : ViewerViewMode.SinglePage;
+        settings?.Update(s => s with { ViewerViewMode = mode });
     }
 
     [RelayCommand]

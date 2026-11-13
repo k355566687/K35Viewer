@@ -6,6 +6,7 @@ using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Infrastructure.Logging;
+using K35Viewer.Infrastructure.Settings;
 using K35Viewer.Services;
 using K35Viewer.ViewModels;
 using K35Viewer.Views;
@@ -65,6 +66,10 @@ public partial class App : Application
         builder.Services.AddSingleton<ThumbnailRepository>();
         builder.Services.AddSingleton<ThumbnailService>();
         builder.Services.AddSingleton<ThumbnailImageLoader>(sp => new ThumbnailImageLoader(sp.GetRequiredService<ThumbnailCacheStore>()));
+        builder.Services.AddSingleton(new SettingsStore(paths.SettingsFile));
+        builder.Services.AddSingleton<SettingsService>();
+        builder.Services.AddTransient<SettingsViewModel>();
+        builder.Services.AddSingleton<Func<SettingsViewModel>>(sp => sp.GetRequiredService<SettingsViewModel>);
         builder.Services.AddSingleton<IDialogService, WpfDialogService>();
         builder.Services.AddSingleton<IArchiveWriter, ArchiveWriter>();
         builder.Services.AddSingleton<IRecycleBinService, RecycleBinService>();
@@ -112,10 +117,21 @@ public partial class App : Application
             return;
         }
 
+        // 外観は、画面を表示する前に当てる。設定画面で変えたときは、その場で当て直す（要件定義 24.2）
+        var settings = _host.Services.GetRequiredService<SettingsService>();
+        ThemeManager.Apply(settings.Current.Theme);
+        settings.Changed += (_, changed) => ThemeManager.Apply(changed.Theme);
+
         // 前回の異常終了などで残った一時ファイルを片付ける（画面の表示を待たせない）
         var maintenance = _host.Services.GetRequiredService<StartupMaintenance>();
         _host.Services.GetRequiredService<MainWindow>().Show();
         _ = maintenance.RunAsync();
+
+        if (settings.LoadFailed)
+        {
+            _host.Services.GetRequiredService<NotificationService>().ShowWarning(
+                "設定のファイルを読めなかったため、初期の設定で起動しました。設定画面で設定し直してください");
+        }
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "35Viewer started. DataRoot={Root}")]

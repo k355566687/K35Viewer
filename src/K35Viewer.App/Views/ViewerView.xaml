@@ -133,9 +133,11 @@
             <RowDefinition Height="*" />
         </Grid.RowDefinitions>
 
-        <!-- ツールバー（全画面では隠す） -->
+        <!-- ツールバー（全画面では隠す）。テーマに合わせる。暗いままにするのは、下の画像の領域だけ（画面一覧 12.1） -->
         <Border Grid.Row="0"
-                Background="#2B2B2B"
+                Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}"
+                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+                BorderThickness="0,0,0,1"
                 Padding="8,6"
                 Visibility="{Binding ShowToolbar, Converter={StaticResource BoolToVisibility}}">
             <DockPanel LastChildFill="False">
@@ -147,7 +149,7 @@
                         AutomationProperties.Name="ライブラリへ戻る" />
                 <TextBlock DockPanel.Dock="Left"
                            Text="{Binding ArchiveName}"
-                           Foreground="White"
+                           Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                            FontWeight="SemiBold"
                            VerticalAlignment="Center"
                            Margin="16,0,0,0" />
@@ -174,7 +176,7 @@
                             ToolTip="縮小 (− / Ctrl+ホイール)"
                             AutomationProperties.Name="縮小" />
                     <TextBlock Text="{Binding ZoomText}"
-                               Foreground="White"
+                               Foreground="{DynamicResource TextFillColorPrimaryBrush}"
                                VerticalAlignment="Center"
                                MinWidth="110"
                                TextAlignment="Center"
