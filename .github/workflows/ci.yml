@@ -1,0 +1,46 @@
+# ビルドとテスト（開発環境設計書 18章）。main への push と、プルリクエストで動く。
+# WPF のビルドと、ウィンドウを表示するテストがあるため、Windows のランナーを使う。
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # SDK のバージョンは global.json に合わせる
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Restore
+        run: dotnet restore K35Viewer.slnx
+
+      - name: Build
+        run: dotnet build K35Viewer.slnx -c Release --no-restore
+
+      # 実際のごみ箱を使う統合テストは、環境変数 K35_RUN_RECYCLEBIN_TESTS を指定しないため実行されない
+      - name: Test
+        run: dotnet test --solution K35Viewer.slnx -c Release --no-build --report-xunit-trx --results-directory TestResults
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: test-results
+          path: TestResults/
+          if-no-files-found: ignore

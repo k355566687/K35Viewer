@@ -1,0 +1,64 @@
+# 配布物を作り、GitHub のリリース（下書き）に添付する（開発環境設計書 17.2・18章）。
+# ・タグ（v0.2.0 など）を push すると動く。タグとアプリのバージョン（K35Viewer.App.csproj の Version）が違えば失敗する
+# ・リリースは下書きで作る。リリースノートを確かめてから、GitHub の画面で公開する
+# ・手動で実行（workflow_dispatch）した場合は、配布物を作って成果物（Artifacts）に置くだけで、リリースは作らない（確認用）
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-dotnet@0f4a354dd5547a28c70b7853dbd95d5b67886e73 # v6.1.0
+        with:
+          global-json-file: global.json
+
+      - name: Check version
+        id: version
+        shell: pwsh
+        run: |
+          [xml]$project = Get-Content src/K35Viewer.App/K35Viewer.App.csproj
+          $version = ($project.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version
+          if (-not $version) { throw "K35Viewer.App.csproj に Version がありません" }
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "v$version") {
+            throw "タグ（$env:GITHUB_REF_NAME）と、アプリのバージョン（v$version）が違います。K35Viewer.App.csproj の Version を合わせてください"
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "asset=K35Viewer-v$version-win-x64.zip" >> $env:GITHUB_OUTPUT
+
+      # テストを実行してから、self-contained x64 のフォルダを作る（テストが失敗すれば、配布物を作らない）
+      - name: Test and publish
+        shell: pwsh
+        run: ./scripts/publish.ps1
+
+      - name: Zip
+        shell: pwsh
+        run: Compress-Archive -Path publish/K35Viewer-win-x64 -DestinationPath "${{ steps.version.outputs.asset }}" -CompressionLevel Optimal
+
+      - name: Upload artifact
+        if: github.ref_type != 'tag'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: ${{ steps.version.outputs.asset }}
+          path: ${{ steps.version.outputs.asset }}
+
+      # 1.0 より前の版は、試用版（Pre-release）として作る
+      - name: Create draft release
+        if: github.ref_type == 'tag'
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $options = @('--draft', '--generate-notes', '--title', "35Viewer $env:GITHUB_REF_NAME")
+          if ('${{ steps.version.outputs.version }}'.StartsWith('0.')) { $options += '--prerelease' }
+          gh release create $env:GITHUB_REF_NAME "${{ steps.version.outputs.asset }}" @options
