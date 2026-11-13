@@ -45,6 +45,16 @@ public sealed partial class LibraryViewModel(
     private CancellationTokenSource? _refreshCts;
     // 取得のたびに新しい辞書を作って差し替える(作成後は変更しない)。作成スレッドからの参照と競合しない
     private Dictionary<long, ArchiveListItem> _itemsById = [];
+    // 一覧の取得中に届いた、サムネイル作成の結果。取得した内容は、取得した時点のDBの状態のため、
+    // その後に届いた結果を、差し替えた一覧へ当て直す（当て直さないと「作成待ち」のまま残る）。取得中でなければ null
+    private Dictionary<long, ArchiveProcessed>? _updatesDuringQuery;
+    private readonly Lock _itemsLock = new();
+
+    /// <summary>
+    /// テスト用。一覧の取得が終わってから、一覧を差し替えるまでの間に呼ばれる
+    /// （その間にサムネイルの作成が終わる場合を、確実に再現するため）。
+    /// </summary>
+    internal Func<Task>? QueryCompletedForTesting { get; set; }
     private int _runningScans;
     private bool _initialized;
     private bool _hasLoadedArchives;
@@ -649,6 +659,7 @@ public sealed partial class LibraryViewModel(
             previous.Dispose();
         }
 
+        Dictionary<long, ArchiveProcessed> updates = [];
         try
         {
             if (delay is { } wait)
@@ -661,11 +672,35 @@ public sealed partial class LibraryViewModel(
                 SearchText,
                 SelectedSortOption.Key,
                 IsDescending);
+            lock (_itemsLock)
+            {
+                _updatesDuringQuery = updates;
+            }
+
             var result = await library.QueryArchivesAsync(query, cts.Token);
+            if (QueryCompletedForTesting is { } hook)
+            {
+                await hook();
+            }
+
             cts.Token.ThrowIfCancellationRequested();
 
             var items = result.Items.Select(item => new ArchiveListItem(item, imageLoader)).ToList();
-            _itemsById = items.ToDictionary(item => item.Id);
+            var byId = items.ToDictionary(item => item.Id);
+            lock (_itemsLock)
+            {
+                // 取得中に届いた結果を当ててから差し替える。差し替えたあとに届く結果は、新しい辞書の項目へ当たる
+                foreach (var (archiveId, update) in updates)
+                {
+                    if (byId.TryGetValue(archiveId, out var item))
+                    {
+                        item.Apply(update);
+                    }
+                }
+
+                _itemsById = byId;
+            }
+
             Archives = items;
 
             // 取得し直しても、選択を維持する（操作の直後は、操作の対象や、次の項目を選ぶ）
@@ -689,6 +724,17 @@ public sealed partial class LibraryViewModel(
         catch (Exception ex)
         {
             LogQueryFailed(logger, ex);
+        }
+        finally
+        {
+            // キャンセル・失敗で差し替えなかった場合も、記録をやめる（新しい取得が始まっていれば、そちらの記録は残す）
+            lock (_itemsLock)
+            {
+                if (ReferenceEquals(_updatesDuringQuery, updates))
+                {
+                    _updatesDuringQuery = null;
+                }
+            }
         }
     }
 
@@ -792,10 +838,15 @@ public sealed partial class LibraryViewModel(
     {
         void Apply()
         {
-            if (_itemsById.TryGetValue(update.ArchiveId, out var item))
+            ArchiveListItem? item;
+            lock (_itemsLock)
             {
-                item.Apply(update);
+                // 一覧の取得中なら、取得し終えた一覧にも当てられるよう記録する（同じアーカイブは、後の結果で上書き）
+                _updatesDuringQuery?[update.ArchiveId] = update;
+                _ = _itemsById.TryGetValue(update.ArchiveId, out item);
             }
+
+            item?.Apply(update);
         }
 
         if (_uiContext is null)

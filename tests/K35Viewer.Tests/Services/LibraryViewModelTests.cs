@@ -394,6 +394,39 @@ public class LibraryViewModelTests
     }
 
     [Fact]
+    public async Task 一覧の取得中にサムネイルの作成が終わっても_作成待ちのまま残らない()
+    {
+        // 起動時は、更新チェックのスキャンとサムネイルの作成が並行して動き、スキャンが終わると一覧を取得し直す。
+        // 取得してから一覧を差し替えるまでの間に作成が終わると、その結果の通知が古い一覧に当たり、
+        // 新しい一覧は「作成待ち」のまま残っていた（CI で時々失敗していた）
+        using var ctx = new LibraryTestContext();
+        await ctx.InitializeAsync();
+        ctx.CreateZip("good.zip", ("1.jpg", TestImages.Jpeg(100, 100)));
+        ctx.CreateZip("docs.zip", ("a.txt", [1]));
+        await RegisterAndScanAsync(ctx);
+        using var viewModel = CreateViewModel(ctx);
+
+        var processed = false;
+        viewModel.QueryCompletedForTesting = async () =>
+        {
+            // 最初の取得の直後（取得した内容はまだ「作成待ち」）に、作成を最後まで行う
+            if (!processed)
+            {
+                processed = true;
+                await ctx.Thumbnails.ProcessPendingAsync(ct: Ct);
+            }
+        };
+
+        await viewModel.InitializeAsync();
+        var placeholders = viewModel.Archives.ToDictionary(item => item.FileName, item => item.PlaceholderText);
+        await WaitForIdleAsync(viewModel);
+
+        Assert.True(processed);
+        Assert.Equal(string.Empty, placeholders["good.zip"]);
+        Assert.Equal("画像なし", placeholders["docs.zip"]);
+    }
+
+    [Fact]
     public async Task サムネイル表示では_表示領域の幅に合わせて1行に並べる枚数が決まる()
     {
         using var ctx = new LibraryTestContext();
