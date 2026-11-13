@@ -257,6 +257,17 @@
                            AutomationProperties.Name="サムネイル作成の進捗" />
             </DockPanel>
 
+            <!--
+                一覧の領域。ウィンドウの地（左のツリー・ツールバー）より一段明るい面にし、角を丸めた枠で囲んで、境をわかりやすくする。
+                ウィンドウの地は半透明（Mica。壁紙の色がにじむ）のため、面は不透明な色にする。
+                色はテーマの色（SolidBackgroundFillColor / SurfaceStrokeColor）を使う（ライトのテーマでも同じ関係になる）
+            -->
+            <Border x:Name="ListPanel"
+                    Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}"
+                    BorderBrush="{DynamicResource SurfaceStrokeColorDefaultBrush}"
+                    BorderThickness="1"
+                    CornerRadius="8"
+                    Padding="4">
             <Grid>
                 <!-- ListView / ListBoxはScrollViewerやStackPanelの中に置かない(置くと仮想化が無効になる) -->
                 <ListView x:Name="DetailList"
@@ -270,6 +281,8 @@
                           MouseDoubleClick="OnArchiveListMouseDoubleClick"
                           KeyDown="OnArchiveListKeyDown"
                           SizeChanged="OnDetailListSizeChanged"
+                          Background="Transparent"
+                          BorderThickness="0"
                           Visibility="{Binding IsDetailView, Converter={StaticResource BoolToVisibility}}">
                     <!-- 行の高さは、テーマの見た目を引き継いだうえで画面側で詰める（ApplyCompactRows） -->
                     <ListView.ContextMenu>
@@ -302,6 +315,8 @@
                          VirtualizingPanel.VirtualizationMode="Recycling"
                          ScrollViewer.CanContentScroll="True"
                          ScrollViewer.HorizontalScrollBarVisibility="Disabled"
+                         Background="Transparent"
+                         BorderThickness="0"
                          Visibility="{Binding IsThumbnailView, Converter={StaticResource BoolToVisibility}}"
                          KeyDown="OnThumbnailListKeyDown"
                          SizeChanged="OnThumbnailListSizeChanged"
@@ -337,6 +352,7 @@
                     </TextBlock.Style>
                 </TextBlock>
             </Grid>
+            </Border>
         </DockPanel>
     </Grid>
 </UserControl>
