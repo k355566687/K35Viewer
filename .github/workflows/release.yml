@@ -59,6 +59,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $options = @('--draft', '--generate-notes', '--title', "35Viewer $env:GITHUB_REF_NAME")
+          # 定型の部分（ダウンロード、アンインストール、Code signing policy、プライバシー）のあとに、自動生成の変更点が続く
+          $options = @('--draft', '--generate-notes', '--notes-file', '.github/release-notes.md', '--title', "35Viewer $env:GITHUB_REF_NAME")
           if ('${{ steps.version.outputs.version }}'.StartsWith('0.')) { $options += '--prerelease' }
           gh release create $env:GITHUB_REF_NAME "${{ steps.version.outputs.asset }}" @options

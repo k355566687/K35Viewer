@@ -42,7 +42,7 @@ Status: Pending approval. Releases up to and including v0.1.0 are **not signed**
 
 ## Privacy policy
 
-This program will not transfer any information to other networked systems unless specifically requested by the user.
+This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
 35Viewer does not send any data over the network: it has no telemetry, no update check, and no online features.
 It only reads and writes files in the folders that the user registers (which may be network shares such as a NAS),
