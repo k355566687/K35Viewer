@@ -5,6 +5,18 @@
 
 現在は MVP（最小限の機能をそろえた最初の版）です。
 
+> **English summary**: 35Viewer is a free, open-source Windows desktop application (WPF / .NET 10) for browsing and managing
+> image archives (ZIP / CBZ). It indexes archives across multiple folders, shows them as a searchable library with thumbnails,
+> and lets you view the images and remove unwanted ones from an archive safely (the original archive is moved to the Recycle Bin).
+> Binaries are built by GitHub Actions from this repository and published as a ZIP on [GitHub Releases](https://github.com/k355566687/K35Viewer/releases).
+> See [Code signing policy](CODE_SIGNING.md) and [Privacy](#プライバシー--privacy).
+
+## ダウンロード
+
+[Releases](https://github.com/k355566687/K35Viewer/releases) から `K35Viewer-v〈バージョン〉-win-x64.zip` をダウンロードし、展開したフォルダの `K35Viewer.exe` を実行してください。インストールは不要で、無料です。
+
+実行ファイルには、まだ署名をしていません。初回の起動時に Windows の警告（SmartScreen）が出ることがあります。そのときは「詳細情報」→「実行」で起動できます（[コード署名](#コード署名)）。
+
 ## 主な機能
 
 - **ライブラリ**
@@ -86,6 +98,20 @@ dotnet test --solution K35Viewer.slnx -c Release
 | DB設計書 | SQLite のテーブル、検索、スキャン |
 | 内部アーキテクチャ設計書 | 層の構成、ZIP 更新の手順と安全境界、並行処理 |
 | 開発環境設計書 | 採用技術、ビルド、テスト、実装の順序 |
+
+## コード署名
+
+配布物への署名は、オープンソース向けの無料の署名サービス（SignPath Foundation）に申請する予定です。署名の対象・手順・担当は [CODE_SIGNING.md](CODE_SIGNING.md) にまとめています。
+
+## プライバシー / Privacy
+
+35Viewer は、ネットワークを通じて情報を送信しません（利用状況の収集、更新の確認、オンラインの機能はありません）。読み書きするのは、利用者が登録したフォルダ（NAS などのネットワーク上のフォルダを含む）の中のファイルと、`%LOCALAPPDATA%\K35Viewer\` に保存する自身のデータ（DB、サムネイル、ログ）だけです。
+
+This program will not transfer any information to other networked systems unless specifically requested by the user.
+
+## 行動規範
+
+このプロジェクトに参加する方は、[行動規範（Contributor Covenant）](CODE_OF_CONDUCT.md) に従ってください。
 
 ## ライセンス
 
