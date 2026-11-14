@@ -1,4 +1,4 @@
-# Visual Studio
+﻿# Visual Studio
 .vs/
 *.user
 *.suo
@@ -22,3 +22,5 @@ temp/
 
 # 画面確認用のサンプルデータと撮影結果（tests/Tools/SampleLibraryGenerator.cs で作る）
 .agents/sample/
+# 個人用のステアリングファイル（開発の進め方の好み。リポジトリには入れない）
+.kiro/steering/tsumugi.md
