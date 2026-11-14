@@ -3,11 +3,12 @@
 画像アーカイブ（ZIP / CBZ）を、ライブラリとして管理しながら閲覧する Windows 用のビューアです。
 複数のフォルダにあるアーカイブを横断して探し、開いて見ながら、不要な画像をその場で削除できます。
 
-現在は MVP（最小限の機能をそろえた最初の版）です。
+現在の版は v0.2.0（試用版）です。最初の版（v0.1.0）に、設定画面、バックアップと復元、アプリの更新を加えました。
 
 > **English summary**: 35Viewer is a free, open-source Windows desktop application (WPF / .NET 10) for browsing and managing
 > image archives (ZIP / CBZ). It indexes archives across multiple folders, shows them as a searchable library with thumbnails,
 > and lets you view the images and remove unwanted ones from an archive safely (the original archive is moved to the Recycle Bin).
+> Version 0.2.0 adds a settings window (appearance, confirmations), backup and restore of the app
 > Binaries are built by GitHub Actions from this repository and published as a ZIP on [GitHub Releases](https://github.com/k355566687/K35Viewer/releases).
 > See [Code signing policy](CODE_SIGNING.md), [Privacy](#プライバシー--privacy) and [Uninstall](#アンインストール--uninstall).
 
@@ -17,11 +18,19 @@
 
 実行ファイルには、まだ署名をしていません。初回の起動時に Windows の警告（SmartScreen）が出ることがあります。そのときは「詳細情報」→「実行」で起動できます（[Code signing policy](#code-signing-policy--コード署名ポリシー)）。
 
+### 更新 / Updating
+
+v0.2.0 以降は、アプリの中から更新できます（[設定画面](#設定バックアップ更新)の「更新を確認」「更新する」）。
+
+v0.1.0 には更新の機能がないため、v0.1.0 から更新する場合は、アプリを終了して、展開したフォルダの中身を、新しい版の ZIP の中身で上書きしてください。ライブラリの情報（`%LOCALAPPDATA%\K35Viewer\`）は、そのまま引き継がれます。
+
+From v0.2.0 on, you can update from inside the app (Settings → "Check for updates" / "Update"). v0.1.0 has no updater: close the app and overwrite the extracted folder with the contents of the new ZIP; your library data is kept.
+
 ### アンインストール / Uninstall
 
-インストーラーはありません。展開したフォルダを削除してください。ライブラリの情報（DB、サムネイル、ログ）も消す場合は、`%LOCALAPPDATA%\K35Viewer\` も削除してください。アーカイブ自体は削除されません。
+インストーラーはありません。展開したフォルダを削除してください。ライブラリの情報（DB、設定、バックアップ、サムネイル、ログ）も消す場合は、`%LOCALAPPDATA%\K35Viewer\` も削除してください（バックアップも消えます）。アーカイブ自体は削除されません。
 
-There is no installer. To uninstall, delete the extracted folder. To also remove the library data (database, thumbnail cache and logs), delete `%LOCALAPPDATA%\K35Viewer\`. Your archives are not affected.
+There is no installer. To uninstall, delete the extracted folder. To also remove the library data (database, settings, backups, thumbnail cache and logs), delete `%LOCALAPPDATA%\K35Viewer\`. Your archives are not affected.
 
 ## 主な機能
 
@@ -30,14 +39,46 @@ There is no installer. To uninstall, delete the extracted folder. To also remove
   - 詳細表示とサムネイル表示、ファイル名での検索、並べ替え（ファイル名・更新日時・ファイルサイズ・画像枚数）
   - 1万件以上でも、ZIP を開かずに一覧を表示（SQLite のインデックスとサムネイルのキャッシュ）
   - アーカイブの名前変更・移動・削除（ごみ箱へ）、エクスプローラーで表示
+  - 表示方式（詳細 / サムネイル）を覚えて、次の起動でも同じ表示で始める
 - **ビューア**
-  - 1枚表示（拡大・縮小、ウィンドウに合わせる、原寸、全画面）と一覧表示
+  - 1枚表示（拡大・縮小、ウィンドウに合わせる、原寸、全画面）と一覧表示（表示方式は、次の起動でも覚えている）
   - 前回見ていた画像から開く
 - **画像の削除**
   - 不要な画像を「削除予約」し、アーカイブを離れるときに、まとめて ZIP から取り除く
   - 更新前の ZIP は Windows のごみ箱へ退避する。新しい ZIP を作って確かめてから置き換えるため、途中で失敗しても元の ZIP は壊れない
 
+- **設定画面**（v0.2.0）
+  - 外観（ダーク / ライト / Windowsの設定に合わせる）。再起動せずに、その場で切り替わる
+  - 確認のオン/オフ（アーカイブから離れるとき、アーカイブを削除するとき）
+  - サムネイルのキャッシュの大きさの表示と削除
+- **バックアップと復元**（v0.2.0）: アプリのデータを1つのファイルに保存し、その時点に戻せる
+- **アプリの更新**（v0.2.0）: 新しい版を確かめ、アプリの中で入れ替える。押したときだけ通信する
+
 対応形式は ZIP / CBZ の中の JPEG / PNG です（WebP、GIF、RAR、7z などは未対応）。
+
+## 設定・バックアップ・更新
+
+ライブラリ画面の左下の「⚙ 設定」で、設定画面を開きます（別のウィンドウです。変更は、その場で反映して保存します）。
+
+### 設定
+
+- **外観**: ダーク（既定）、ライト、Windowsの設定に合わせる
+- **確認**: 「アーカイブから離れるとき、削除予約を反映するか確認する」と「アーカイブを削除するとき、確認する」を、それぞれオフにできます。オフにしても、更新できないときの確認と、ごみ箱を使えない場所での完全な削除の確認は、必ず表示します（元に戻せないため）
+- **データ**: 保存場所とサムネイルのキャッシュの場所を、エクスプローラーで開けます。キャッシュは、大きさを確かめて、削除できます（削除したサムネイルは、順に作り直します。アーカイブ自体は変わりません）。スキャン中とサムネイルの作成中は、削除できません
+
+### バックアップと復元
+
+- **バックアップ**: 「バックアップを作成」で、ライブラリの情報、閲覧位置、操作履歴、設定を、1つの ZIP にまとめます。保存先は `%LOCALAPPDATA%\K35Viewer\backups\` で、「フォルダを開く」から開けます。別の場所へコピーして保管することもできます。サムネイルのキャッシュとログは含みません（作り直せるため）。アーカイブ（画像）自体も含みません
+- **自動バックアップ**: 復元と更新の前に、アプリが自動で作ります。新しいものから決まった数（既定は5。設定で1〜20）だけ残して、古いものを削除します。手動で作ったものは、削除しません
+- **復元**: 「復元…」でバックアップを選ぶと、確認のあと、今のデータを自動でバックアップして、アプリを再起動し、その時点のデータに戻します。サムネイルは作り直します。今のアプリより新しい版で作ったバックアップは、復元できません。入れ替えに失敗した場合は、元のデータで起動します
+
+### 更新
+
+- 「更新を確認」で、GitHub のリリースに新しい版があるかを確かめます（試用版を含みます）。起動時に、自動では確かめません
+- 「更新する」で、ダウンロード、ハッシュ（SHA-256）の確認、データのバックアップのあと、アプリを再起動して入れ替えます。入れ替えに失敗した場合は、元の版に戻します
+- アプリのフォルダに書き込めない場合（`C:\Program Files` の中など）や、ダウンロード・確認に失敗した場合は、入れ替えません。「変更点を見る」から、リリースのページを開いて、手で入れ替えてください
+
+In English: the settings window (bottom left of the library screen) lets you choose the appearance, turn the two confirmations on or off, and clear the thumbnail cache. "Create backup" bundles the library data, reading positions, operation history and settings into one ZIP in `%LOCALAPPDATA%\K35Viewer\backups\`; "Restore…" brings it back after a restart (a safety backup of the current data is made first). "Check for updates" / "Update" talk to GitHub only when pressed, verify the download with SHA-256, back up your data, and roll back if the swap fails.
 
 ## 動作環境
 
@@ -76,8 +117,8 @@ dotnet test --solution K35Viewer.slnx -c Release
 
 ## データの保存先
 
-ライブラリの情報（SQLite の DB）、サムネイル、ログは `%LOCALAPPDATA%\K35Viewer\` に保存します。
-アーカイブ自体は、削除予約を確定したとき、または名前変更・移動・削除を行ったときだけ変更します。
+ライブラリの情報（SQLite の DB）、設定（`settings.json`）、バックアップ（`backups\`）、サムネイル（`thumbnails\`）、ログ（`logs\`）は、`%LOCALAPPDATA%\K35Viewer\` に保存します。
+アーカイブ自体は、削除予約を確定したとき、または名前変更・移動・削除を行ったときだけ変更します。バックアップに、アーカイブ（画像）は含みません。
 
 ## 主なキー操作
 
@@ -98,7 +139,7 @@ dotnet test --solution K35Viewer.slnx -c Release
 
 | 文書 | 内容 |
 |---|---|
-| 要件定義 | 目的、機能の要件、MVP の範囲 |
+| 要件定義 | 目的、機能の要件、MVP の範囲、v0.2.0 で追加した機能 |
 | 画面一覧 | 画面とダイアログ、操作、見た目の規則 |
 | ユースケース定義書 | 操作ごとの流れと例外 |
 | DB設計書 | SQLite のテーブル、検索、スキャン |
@@ -115,7 +156,7 @@ See [CODE_SIGNING.md](CODE_SIGNING.md).
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
-35Viewer は、利用者が操作しないかぎり、ネットワークを通じて情報を送信しません（利用状況の収集や、起動時の自動の更新確認はありません）。通信するのは、設定画面で「更新を確認」「更新する」を押したときだけです。このとき、新しい版を調べて入手するために、GitHub（`api.github.com`、`github.com`）へ通常の HTTPS の要求を送ります。利用者のデータは送りません。読み書きするのは、利用者が登録したフォルダ（NAS などのネットワーク上のフォルダを含む）の中のファイルと、`%LOCALAPPDATA%\K35Viewer\` に保存する自身のデータ（DB、サムネイル、ログ）だけです。
+35Viewer は、利用者が操作しないかぎり、ネットワークを通じて情報を送信しません（利用状況の収集や、起動時の自動の更新確認はありません）。通信するのは、設定画面で「更新を確認」「更新する」を押したときだけです。このとき、新しい版を調べて入手するために、GitHub（`api.github.com`、`github.com`）へ通常の HTTPS の要求を送ります。利用者のデータは送りません。読み書きするのは、利用者が登録したフォルダ（NAS などのネットワーク上のフォルダを含む）の中のファイルと、`%LOCALAPPDATA%\K35Viewer\` に保存する自身のデータ（DB、設定、バックアップ、サムネイル、ログ）だけです。
 
 ## 行動規範
 

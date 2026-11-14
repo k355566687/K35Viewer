@@ -49,4 +49,4 @@ The only network access is the update feature in the settings window, and only w
 it sends plain HTTPS requests to GitHub (`api.github.com` and `github.com`) to look for and download a newer release.
 No user data is sent.
 It only reads and writes files in the folders that the user registers (which may be network shares such as a NAS),
-and stores its own data (a SQLite database, thumbnail cache and logs) locally in `%LOCALAPPDATA%\K35Viewer\`.
+and stores its own data (a SQLite database, settings, backups, thumbnail cache and logs) locally in `%LOCALAPPDATA%\K35Viewer\`.
