@@ -8,6 +8,7 @@ using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Infrastructure.Logging;
 using K35Viewer.Infrastructure.Settings;
+using K35Viewer.Infrastructure.Updates;
 using K35Viewer.Services;
 using K35Viewer.ViewModels;
 using K35Viewer.Views;
@@ -27,6 +28,13 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // 更新の入れ替えのための起動（新しい版の実行ファイルが、アプリのフォルダへ自分を重ねる）。画面は出さない
+        if (UpdateApplier.ParseApplyTarget(e.Args) is { } updateTarget)
+        {
+            RunUpdateApply(e.Args, updateTarget);
+            return;
+        }
+
         // 復元のために再起動された場合は、古いプロセスが終わるまで待つ（待たないと、二重の起動として止められる）
         RestartArguments.WaitForPreviousProcess(e.Args);
         // 二重に起動された場合は、すでに動いている方を前面に出して終了する
@@ -42,6 +50,9 @@ public partial class App : Application
         paths.EnsureDirectories();
         // 復元の予定があれば、DB を開く前に、データを入れ替える（要件定義 24.5）。結果は、画面を出してから知らせる
         var restoreResult = PendingRestore.TryApply(paths);
+        // 前回の更新の結果（あれば）を、画面を出してから知らせる。ダウンロードして展開した更新用のフォルダは、片付ける
+        var updateResult = UpdateApplier.TakeResult(paths);
+        UpdateApplier.CleanupStaging(paths);
 
         // 基準のフォルダは、起動したときのカレントフォルダではなく、実行ファイルの場所にする
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
@@ -77,6 +88,17 @@ public partial class App : Application
         builder.Services.AddSingleton<RestoreService>();
         builder.Services.AddSingleton<IBackupDialogs, WpfBackupDialogs>();
         builder.Services.AddSingleton<IAppRestarter, WpfAppRestarter>();
+        // 通信するのは、利用者が「更新を確認」「更新する」を押したときだけ。大きなダウンロードがあるため、全体の時間切れは設けず、呼び出しごとに決める
+        builder.Services.AddSingleton(_ =>
+        {
+            var client = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+            client.DefaultRequestHeaders.UserAgent.ParseAdd($"35Viewer/{AppInfo.VersionText}");
+            return client;
+        });
+        builder.Services.AddSingleton(sp => new GitHubReleaseClient(sp.GetRequiredService<HttpClient>()));
+        builder.Services.AddSingleton<UpdateService>();
+        builder.Services.AddSingleton<IUpdateDialogs, WpfUpdateDialogs>();
+        builder.Services.AddSingleton<IUpdateLauncher, WpfUpdateLauncher>();
         builder.Services.AddTransient<SettingsViewModel>();
         builder.Services.AddSingleton<Func<SettingsViewModel>>(sp => sp.GetRequiredService<SettingsViewModel>);
         builder.Services.AddSingleton<IDialogService, WpfDialogService>();
@@ -138,10 +160,59 @@ builder.Services.AddSingleton<IThumbnailCacheMaintenance>(sp => sp.GetRequiredSe
         _ = maintenance.RunAsync();
 
         ReportRestoreResult(restoreResult, logger);
+        ReportUpdateResult(updateResult);
         if (settings.LoadFailed)
         {
             _host.Services.GetRequiredService<NotificationService>().ShowWarning(
                 "設定のファイルを読めなかったため、初期の設定で起動しました。設定画面で設定し直してください");
+        }
+    }
+
+    /// <summary>
+    /// 更新の入れ替えを行う（新しい版の実行ファイルとして、展開したフォルダから動いている）。古いアプリの終了を待ち、
+    /// アプリのフォルダへ自分の一式を重ね、結果を書いて、アプリのフォルダの実行ファイルを起動する。成功なら新しい版、失敗なら元の版が起動する。
+    /// </summary>
+    private void RunUpdateApply(string[] args, string targetDirectory)
+    {
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        RestartArguments.WaitForPreviousProcess(args);
+        var paths = AppPaths.CreateDefault();
+        paths.EnsureDirectories();
+        var result = UpdateApplier.Apply(
+            AppContext.BaseDirectory, targetDirectory, paths.UpdateRollbackDirectory, AppInfo.VersionText);
+        UpdateApplier.WriteResult(paths, result);
+        try
+        {
+            using var started = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                Path.Combine(targetDirectory, UpdateService.ExecutableName))
+            {
+                WorkingDirectory = targetDirectory,
+                UseShellExecute = false,
+            });
+        }
+        catch (Exception ex) when (ex is System.ComponentModel.Win32Exception or InvalidOperationException or IOException)
+        {
+            // 起動できなかった場合は、利用者が、アプリのフォルダの実行ファイルを起動する
+        }
+
+        Shutdown(result.Succeeded ? 0 : 1);
+    }
+
+    private void ReportUpdateResult(UpdateResult? result)
+    {
+        if (result is null)
+        {
+            return;
+        }
+
+        var notifications = _host!.Services.GetRequiredService<NotificationService>();
+        if (result.Succeeded)
+        {
+            notifications.ShowSuccess(result.Message);
+        }
+        else
+        {
+            notifications.ShowError(result.Message);
         }
     }
 

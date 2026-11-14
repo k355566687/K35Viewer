@@ -1,4 +1,4 @@
-# 35Viewer
+﻿# 35Viewer
 
 画像アーカイブ（ZIP / CBZ）を、ライブラリとして管理しながら閲覧する Windows 用のビューアです。
 複数のフォルダにあるアーカイブを横断して探し、開いて見ながら、不要な画像をその場で削除できます。
@@ -115,7 +115,7 @@ See [CODE_SIGNING.md](CODE_SIGNING.md).
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
-35Viewer は、ネットワークを通じて情報を送信しません（利用状況の収集、更新の確認、オンラインの機能はありません）。読み書きするのは、利用者が登録したフォルダ（NAS などのネットワーク上のフォルダを含む）の中のファイルと、`%LOCALAPPDATA%\K35Viewer\` に保存する自身のデータ（DB、サムネイル、ログ）だけです。
+35Viewer は、利用者が操作しないかぎり、ネットワークを通じて情報を送信しません（利用状況の収集や、起動時の自動の更新確認はありません）。通信するのは、設定画面で「更新を確認」「更新する」を押したときだけです。このとき、新しい版を調べて入手するために、GitHub（`api.github.com`、`github.com`）へ通常の HTTPS の要求を送ります。利用者のデータは送りません。読み書きするのは、利用者が登録したフォルダ（NAS などのネットワーク上のフォルダを含む）の中のファイルと、`%LOCALAPPDATA%\K35Viewer\` に保存する自身のデータ（DB、サムネイル、ログ）だけです。
 
 ## 行動規範
 

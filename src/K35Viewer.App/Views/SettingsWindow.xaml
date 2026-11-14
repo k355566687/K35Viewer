@@ -180,6 +180,55 @@
                 <TextBlock Style="{StaticResource Note}"
                            Text="ライブラリの情報（DB）、設定、ログは「保存場所」に、サムネイルは「サムネイルのキャッシュ」に保存しています。" />
 
+                <!-- アプリの更新 -->
+                <TextBlock Text="アプリの更新" Style="{StaticResource SectionHeader}" />
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="現在の版" Style="{StaticResource ItemLabel}" />
+                    <TextBlock Text="{Binding CurrentVersionText}"
+                               VerticalAlignment="Center"
+                               Margin="0,0,16,0"
+                               AutomationProperties.Name="現在の版" />
+                    <Button Content="更新を確認"
+                            Padding="12,4"
+                            Command="{Binding CheckForUpdateCommand}"
+                            ToolTip="GitHub のリリースに、新しい版があるかを確かめます（このボタンを押したときだけ通信します）"
+                            AutomationProperties.Name="更新を確認" />
+                    <Button Content="変更点を見る"
+                            Padding="12,4"
+                            Margin="8,0,0,0"
+                            Command="{Binding OpenReleaseNotesCommand}"
+                            ToolTip="新しい版のリリースのページ（GitHub）を、ブラウザで開きます"
+                            ToolTipService.ShowOnDisabled="True"
+                            AutomationProperties.Name="新しい版の変更点を見る" />
+                    <Button Content="更新する"
+                            Padding="12,4"
+                            Margin="8,0,0,0"
+                            Command="{Binding InstallUpdateCommand}"
+                            ToolTip="アプリのデータをバックアップしてから、新しい版をダウンロードして、アプリを再起動して入れ替えます"
+                            ToolTipService.ShowOnDisabled="True"
+                            AutomationProperties.Name="新しい版へ更新する" />
+                    <Button Content="中止"
+                            Padding="12,4"
+                            Margin="8,0,0,0"
+                            Command="{Binding CancelUpdateCommand}"
+                            AutomationProperties.Name="確認やダウンロードを中止する">
+                        <Button.Style>
+                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                <Setter Property="Visibility" Value="Collapsed" />
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsUpdateBusy}" Value="True">
+                                        <Setter Property="Visibility" Value="Visible" />
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </Button.Style>
+                    </Button>
+                </StackPanel>
+                <TextBlock Style="{StaticResource Note}"
+                           Text="{Binding UpdateStatusText}"
+                           AutomationProperties.Name="更新の状況" />
+                <TextBlock Style="{StaticResource Note}"
+                           Text="更新の確認とダウンロードのときだけ、GitHub（api.github.com、github.com）と通信します。利用者のデータは送りません。" />
                 <!-- 情報 -->
                 <TextBlock Text="情報" Style="{StaticResource SectionHeader}" />
                 <StackPanel Orientation="Horizontal">

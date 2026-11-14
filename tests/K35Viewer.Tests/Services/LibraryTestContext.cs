@@ -50,6 +50,88 @@ internal sealed class FakeAppRestarter : IAppRestarter
     }
 }
 
+/// <summary>更新の確認のダイアログの代わり。</summary>
+internal sealed class FakeUpdateDialogs : IUpdateDialogs
+{
+    public bool Confirm { get; set; } = true;
+
+    public List<string> Confirmations { get; } = [];
+
+    public bool ConfirmUpdate(string displayVersion)
+    {
+        Confirmations.Add(displayVersion);
+        return Confirm;
+    }
+}
+
+/// <summary>新しい版の起動の代わり（自動テストは、プロセスを起動しない）。</summary>
+internal sealed class FakeUpdateLauncher : IUpdateLauncher
+{
+    public List<(string Executable, string Arguments)> Launches { get; } = [];
+
+    public bool Result { get; set; } = true;
+
+    public bool TryLaunchAndExit(string executable, string arguments)
+    {
+        Launches.Add((executable, arguments));
+        return Result;
+    }
+}
+
+/// <summary>
+/// GitHub の代わり（自動テストは、実際には通信しない）。リリースの一覧、ハッシュ、配布物を、あらかじめ決めた内容で返す。
+/// 要求の記録を持つ。
+/// </summary>
+internal sealed class FakeGitHubHandler : HttpMessageHandler
+{
+    public string ReleasesJson { get; set; } = "[]";
+
+    /// <summary>ハッシュのファイルの内容。</summary>
+    public string HashText { get; set; } = string.Empty;
+
+    public byte[] Package { get; set; } = [];
+
+    /// <summary>設定すると、リリースの一覧を求められたときに、この状態を返す。</summary>
+    public System.Net.HttpStatusCode? ReleasesStatus { get; set; }
+
+    /// <summary>設定すると、すべての要求でこの例外を投げる（接続できない場合）。</summary>
+    public Exception? Failure { get; set; }
+
+    /// <summary>true なら、配布物のダウンロードは、取り消されるまで終わらない。</summary>
+    public bool HangOnPackage { get; set; }
+
+    public List<Uri> Requests { get; } = [];
+
+    protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
+    {
+        Requests.Add(request.RequestUri!);
+        if (Failure is not null)
+        {
+            throw Failure;
+        }
+
+        var path = request.RequestUri!.AbsolutePath;
+        if (request.RequestUri.Host == "api.github.com")
+        {
+            return ReleasesStatus is { } status
+                ? new HttpResponseMessage(status)
+                : new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(ReleasesJson) };
+        }
+
+        if (path.EndsWith(".sha256", StringComparison.Ordinal))
+        {
+            return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new StringContent(HashText) };
+        }
+
+        if (HangOnPackage)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+        }
+
+        return new HttpResponseMessage(System.Net.HttpStatusCode.OK) { Content = new ByteArrayContent(Package) };
+    }
+}
+
 /// <summary>通知を記録するだけのテスト用実装。</summary>
 internal sealed class FakeNotificationService : INotificationService
 {
@@ -371,10 +453,33 @@ internal sealed class LibraryTestContext : IDisposable
         IThumbnailCacheMaintenance cache,
         TimeProvider? clock = null,
         FakeBackupDialogs? dialogs = null,
-        FakeAppRestarter? restarter = null) =>
+        FakeAppRestarter? restarter = null,
+        UpdateService? updates = null,
+        FakeUpdateDialogs? updateDialogs = null) =>
         new(settings, new K35Viewer.Infrastructure.FileSystem.AppPaths(CacheDirectory), Explorer, cache,
             CreateBackupService(settings, clock), CreateRestoreService(settings, clock), dialogs ?? new FakeBackupDialogs(),
-            restarter ?? new FakeAppRestarter(), Notifications, NullLogger<K35Viewer.ViewModels.SettingsViewModel>.Instance);
+            restarter ?? new FakeAppRestarter(), updates ?? CreateUpdateService(settings: settings),
+            updateDialogs ?? new FakeUpdateDialogs(), Notifications, NullLogger<K35Viewer.ViewModels.SettingsViewModel>.Instance);
+
+    /// <summary>更新のサービスを作る。通信は、偽の相手に向ける（実際の通信はしない）。</summary>
+    public UpdateService CreateUpdateService(
+        HttpMessageHandler? handler = null,
+        FakeUpdateLauncher? launcher = null,
+        Version? current = null,
+        string? appDirectory = null,
+        K35Viewer.Services.SettingsService? settings = null)
+    {
+        var http = new HttpClient(handler ?? new FakeGitHubHandler(), disposeHandler: true) { Timeout = Timeout.InfiniteTimeSpan };
+        return new UpdateService(
+            new K35Viewer.Infrastructure.FileSystem.AppPaths(CacheDirectory),
+            new K35Viewer.Infrastructure.Updates.GitHubReleaseClient(http),
+            http,
+            CreateBackupService(settings),
+            launcher ?? new FakeUpdateLauncher(),
+            NullLogger<UpdateService>.Instance,
+            current ?? new Version(0, 2, 0),
+            appDirectory ?? Path.Combine(Workspace, "app"));
+    }
 
     /// <summary>バックアップのサービスを作る（保存先は、キャッシュのフォルダの中の backups。テストの後始末で消える）。</summary>
     public BackupService CreateBackupService(K35Viewer.Services.SettingsService? settings = null, TimeProvider? clock = null) =>

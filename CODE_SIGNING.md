@@ -1,4 +1,4 @@
-# Code signing policy
+﻿# Code signing policy
 
 35Viewer is distributed for Windows only, as a ZIP file on GitHub Releases.
 
@@ -44,6 +44,9 @@ Status: Pending approval. Releases up to and including v0.1.0 are **not signed**
 
 This program will not transfer any information to other networked systems unless specifically requested by the user or the person installing or operating it.
 
-35Viewer does not send any data over the network: it has no telemetry, no update check, and no online features.
+35Viewer does not send any data over the network on its own: it has no telemetry and no automatic update check.
+The only network access is the update feature in the settings window, and only when the user presses "Check for updates" or "Update":
+it sends plain HTTPS requests to GitHub (`api.github.com` and `github.com`) to look for and download a newer release.
+No user data is sent.
 It only reads and writes files in the folders that the user registers (which may be network shares such as a NAS),
 and stores its own data (a SQLite database, thumbnail cache and logs) locally in `%LOCALAPPDATA%\K35Viewer\`.

@@ -18,7 +18,19 @@ public sealed class AppPaths
         RestorePendingFile = Path.Combine(root, "restore-pending.json");
         RestoreStagingDirectory = Path.Combine(root, "restore-staging");
         RestoreRollbackDirectory = Path.Combine(root, "restore-rollback");
+        UpdateStagingDirectory = Path.Combine(root, "update-staging");
+        UpdateRollbackDirectory = Path.Combine(root, "update-rollback");
+        UpdateResultFile = Path.Combine(root, "update-result.json");
     }
+
+    /// <summary>ダウンロードした更新の配布物（ZIP）と、展開した新しい版を置くフォルダ（要件定義 24.6）。</summary>
+    public string UpdateStagingDirectory { get; }
+
+    /// <summary>更新の入れ替えの間だけ、元のファイルを退避するフォルダ。</summary>
+    public string UpdateRollbackDirectory { get; }
+
+    /// <summary>更新の入れ替えの結果。次に起動したアプリが読んで、利用者へ知らせる。</summary>
+    public string UpdateResultFile { get; }
 
     /// <summary>復元の入れ替えの予定の目印。あれば、次の起動の最初に入れ替える（要件定義 24.5）。</summary>
     public string RestorePendingFile { get; }

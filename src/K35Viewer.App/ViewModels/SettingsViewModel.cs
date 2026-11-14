@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using K35Viewer.Infrastructure;
 using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Settings;
+using K35Viewer.Infrastructure.Updates;
 using K35Viewer.Services;
 using Microsoft.Extensions.Logging;
 
@@ -21,6 +22,8 @@ public sealed partial class SettingsViewModel(
     RestoreService restore,
     IBackupDialogs backupDialogs,
     IAppRestarter restarter,
+    UpdateService updates,
+    IUpdateDialogs updateDialogs,
     INotificationService notifications,
     ILogger<SettingsViewModel> logger) : ObservableObject, IDisposable
 {
@@ -173,6 +176,139 @@ public sealed partial class SettingsViewModel(
         }
     }
 
+    // アプリの更新（要件定義 24.6）
+
+    /// <summary>今の版の表示（例: 0.2.0）。</summary>
+    public string CurrentVersionText => updates.CurrentVersion.ToString(3);
+
+    /// <summary>更新の確認・ダウンロードの状況の表示。</summary>
+    [ObservableProperty]
+    private string _updateStatusText = string.Empty;
+
+    /// <summary>確認や準備の最中か。この間は、確認と更新のボタンを押せず、「中止」を押せる。</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(CheckForUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(InstallUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(CancelUpdateCommand))]
+    private bool _isUpdateBusy;
+
+    /// <summary>確認で見つかった、新しい版。なければ null。</summary>
+    [ObservableProperty]
+    [NotifyCanExecuteChangedFor(nameof(InstallUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(OpenReleaseNotesCommand))]
+    private ReleaseInfo? _availableRelease;
+
+    private CancellationTokenSource? _updateCts;
+
+    private bool CanCheckForUpdate() => !IsUpdateBusy;
+
+    /// <summary>GitHub のリリースに、新しい版があるかを確かめる（押したときだけ通信する）。</summary>
+    [RelayCommand(CanExecute = nameof(CanCheckForUpdate))]
+    private async Task CheckForUpdateAsync()
+    {
+        using var cts = new CancellationTokenSource();
+        _updateCts = cts;
+        IsUpdateBusy = true;
+        AvailableRelease = null;
+        UpdateStatusText = "確認しています…";
+        try
+        {
+            var result = await updates.CheckAsync(cts.Token);
+            switch (result.Status)
+            {
+                case UpdateCheckStatus.Available:
+                    AvailableRelease = result.Release;
+                    UpdateStatusText = result.Release!.IsInstallable
+                        ? $"新しい版 {result.Release.DisplayVersion} があります"
+                        : $"新しい版 {result.Release.DisplayVersion} があります（アプリの中では更新できません。「変更点を見る」から、手で入れ替えてください）";
+                    break;
+                case UpdateCheckStatus.UpToDate:
+                    UpdateStatusText = "最新の版です";
+                    break;
+                default:
+                    UpdateStatusText = result.Message ?? "確認できませんでした";
+                    break;
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            UpdateStatusText = "確認を中止しました";
+        }
+        finally
+        {
+            _updateCts = null;
+            IsUpdateBusy = false;
+        }
+    }
+
+    private bool CanOpenReleaseNotes() => AvailableRelease is not null;
+
+    /// <summary>新しい版の変更点（リリースのページ）を、ブラウザで開く。</summary>
+    [RelayCommand(CanExecute = nameof(CanOpenReleaseNotes))]
+    private void OpenReleaseNotes() => Open(() => explorer.OpenWebPage(AvailableRelease!.PageUrl));
+
+    private bool CanInstallUpdate() => !IsUpdateBusy && AvailableRelease is { IsInstallable: true };
+
+    /// <summary>
+    /// 新しい版へ更新する。確認のうえ、今のデータをバックアップし、ダウンロードして、ハッシュで確かめ、
+    /// アプリを再起動して入れ替える。更新できない場合は、理由を示す（リリースのページから、手で入れ替えられる）。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanInstallUpdate))]
+    private async Task InstallUpdateAsync()
+    {
+        var release = AvailableRelease!;
+        if (!updateDialogs.ConfirmUpdate(release.DisplayVersion))
+        {
+            return;
+        }
+
+        using var cts = new CancellationTokenSource();
+        _updateCts = cts;
+        IsUpdateBusy = true;
+        var progress = new Progress<UpdateProgress>(p => UpdateStatusText = DescribeProgress(p));
+        try
+        {
+            await updates.InstallAsync(release, progress, cts.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            UpdateStatusText = "更新を中止しました。アプリは、このまま使えます";
+        }
+        catch (UpdateException ex)
+        {
+            UpdateStatusText = ex.OfferReleasePage ? ex.Message + "。「変更点を見る」から、手で入れ替えられます" : ex.Message;
+            notifications.ShowError(ex.Message);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            LogUpdateFailed(logger, ex);
+            UpdateStatusText = "更新の準備に失敗しました。アプリは、このまま使えます";
+            notifications.ShowError(UpdateStatusText);
+        }
+        finally
+        {
+            _updateCts = null;
+            IsUpdateBusy = false;
+        }
+    }
+
+    private bool CanCancelUpdate() => IsUpdateBusy;
+
+    /// <summary>確認やダウンロードを中止する。</summary>
+    [RelayCommand(CanExecute = nameof(CanCancelUpdate))]
+    private void CancelUpdate() => _updateCts?.Cancel();
+
+    private static string DescribeProgress(UpdateProgress progress) => progress.Phase switch
+    {
+        UpdatePhase.Downloading when progress.Total > 0 =>
+            $"ダウンロードしています… {ByteSizeFormatter.Format(progress.Done)} / {ByteSizeFormatter.Format(progress.Total)}",
+        UpdatePhase.Downloading => "ダウンロードしています…",
+        UpdatePhase.Verifying => "ハッシュ（SHA-256）を確かめています…",
+        UpdatePhase.Extracting => "展開しています…",
+        UpdatePhase.BackingUp => "アプリのデータをバックアップしています…",
+        _ => "新しい版を起動しています…",
+    };
+
     [RelayCommand]
     private void OpenBackupsFolder() => Open(() => explorer.OpenFolder(paths.BackupsDirectory));
 
@@ -223,7 +359,11 @@ public sealed partial class SettingsViewModel(
     }
 
     /// <summary>設定画面を閉じるときに呼ぶ（ライブラリ側の通知の購読をやめる）。</summary>
-    public void Dispose() => thumbnailCache.PropertyChanged -= OnThumbnailCacheChanged;
+    public void Dispose()
+    {
+        thumbnailCache.PropertyChanged -= OnThumbnailCacheChanged;
+        _updateCts?.Cancel();
+    }
 
     private void OnThumbnailCacheChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs e)
     {
@@ -351,6 +491,9 @@ public sealed partial class SettingsViewModel(
             notifications.ShowError("開けませんでした");
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "更新の準備に失敗しました。")]
+    private static partial void LogUpdateFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "バックアップの作成または一覧の取得に失敗しました。")]
     private static partial void LogBackupFailed(ILogger logger, Exception exception);
