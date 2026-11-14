@@ -50,6 +50,89 @@ public sealed class ThumbnailCacheStore(string rootDirectory)
 
     public byte[] Read(string relativePath) => File.ReadAllBytes(Resolve(relativePath));
 
+    /// <summary>キャッシュに保存しているサムネイルの合計の大きさ（バイト）。フォルダがなければ 0。</summary>
+    public long GetTotalBytes()
+    {
+        long total = 0;
+        foreach (var file in EnumerateCacheFiles())
+        {
+            try
+            {
+                total += new FileInfo(file).Length;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 数えられないファイルは、含めない
+            }
+        }
+
+        return total;
+    }
+
+    /// <summary>
+    /// キャッシュのサムネイルをすべて削除する（要件定義 24.5）。削除できたファイルの数を返す。
+    /// 削除するのは、このクラスが作るファイル（サブフォルダの中の archive-*.jpg と、書き込み途中の一時ファイル）だけで、
+    /// 同じフォルダにあるほかのファイルには触れない。削除できないファイルがあっても、残りの削除を続ける。
+    /// </summary>
+    public int Clear()
+    {
+        var deleted = 0;
+        foreach (var file in EnumerateCacheFiles().ToList())
+        {
+            try
+            {
+                File.Delete(file);
+                deleted++;
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 削除できないファイルは残す（次に作り直すときに上書きされる）
+            }
+        }
+
+        foreach (var directory in SafeEnumerateDirectories())
+        {
+            try
+            {
+                // 空のフォルダだけ削除される（中身が残っていれば例外になる）
+                Directory.Delete(directory);
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                // 空でない、または使用中のフォルダは残す
+            }
+        }
+
+        return deleted;
+    }
+
+    private IEnumerable<string> EnumerateCacheFiles() =>
+        SafeEnumerateDirectories().SelectMany(directory =>
+        {
+            try
+            {
+                return Directory.EnumerateFiles(directory, "archive-*", SearchOption.TopDirectoryOnly).ToList();
+            }
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+            {
+                return [];
+            }
+        });
+
+    private List<string> SafeEnumerateDirectories()
+    {
+        try
+        {
+            return Directory.Exists(RootDirectory)
+                ? [.. Directory.EnumerateDirectories(RootDirectory)]
+                : [];
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>ファイルを削除する。存在しない場合は何もしない。</summary>
     public void Delete(string relativePath) => TryDelete(Resolve(relativePath));
 

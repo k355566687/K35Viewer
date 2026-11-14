@@ -116,6 +116,37 @@ public sealed partial class ThumbnailService(
         }
     }
 
+    /// <summary>キャッシュに保存しているサムネイルの合計の大きさ（バイト）。</summary>
+    public Task<long> GetCacheSizeAsync(CancellationToken ct = default) =>
+        Task.Run(cache.GetTotalBytes, ct);
+
+    /// <summary>
+    /// サムネイルのキャッシュをすべて削除する（要件定義 24.5）。記録（DB）を消してからファイルを消す。
+    /// 作り直しは <see cref="ProcessPendingAsync"/> が行う（記録のないアーカイブが対象になる）。
+    /// サムネイルの作成中は実行せず、false を返す。
+    /// </summary>
+    public async Task<bool> ClearCacheAsync(CancellationToken ct = default)
+    {
+        if (Interlocked.CompareExchange(ref _running, 1, 0) != 0)
+        {
+            return false;
+        }
+
+        try
+        {
+            await writer.ExecuteAsync(
+                async (connection, transaction, token) => await thumbnails.DeleteAllAsync(connection, transaction, token),
+                ct);
+            var deleted = await Task.Run(cache.Clear, ct);
+            LogCacheCleared(logger, deleted);
+            return true;
+        }
+        finally
+        {
+            Volatile.Write(ref _running, 0);
+        }
+    }
+
     /// <summary>
     /// 1件のアーカイブを解析し、サムネイルを生成する。対象が見つからない、またはファイルがDBの記録と
     /// 食い違う(外部で変更された)場合は、何も更新せず null を返す(次回のスキャンで反映される)。
@@ -349,6 +380,9 @@ public sealed partial class ThumbnailService(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "サムネイル生成が終了しました。対象={Total} 失敗={Failed}")]
     private static partial void LogRunCompleted(ILogger logger, int total, int failed);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "サムネイルのキャッシュを削除しました。削除したファイル={Count}")]
+    private static partial void LogCacheCleared(ILogger logger, int count);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "ファイルが失われたサムネイルを再生成待ちにしました。件数={Count}")]
     private static partial void LogRepaired(ILogger logger, int count);

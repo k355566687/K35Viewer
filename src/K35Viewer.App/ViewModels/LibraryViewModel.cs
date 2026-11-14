@@ -27,7 +27,7 @@ public sealed partial class LibraryViewModel(
     IDialogService dialogs,
     ArchiveService archives,
     ILogger<LibraryViewModel> logger,
-    SettingsService? settings = null) : ObservableObject, IDisposable
+    SettingsService? settings = null) : ObservableObject, IThumbnailCacheMaintenance, IDisposable
 {
     /// <summary>サムネイル表示の1枚の幅(余白を含む)。この幅で1行に並べる枚数を決める。</summary>
     public const double ThumbnailCellWidth = 176;
@@ -115,6 +115,7 @@ public sealed partial class LibraryViewModel(
     [NotifyCanExecuteChangedFor(nameof(ShowSelectedInExplorerCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
     [NotifyPropertyChangedFor(nameof(RemoveFolderToolTip))]
+    [NotifyPropertyChangedFor(nameof(ClearBlockedReason))]
     private bool _isOperating;
 
     [ObservableProperty]
@@ -153,10 +154,12 @@ public sealed partial class LibraryViewModel(
     [NotifyCanExecuteChangedFor(nameof(RescanCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
     [NotifyPropertyChangedFor(nameof(RemoveFolderToolTip))]
+    [NotifyPropertyChangedFor(nameof(ClearBlockedReason))]
     private bool _isScanning;
 
     /// <summary>サムネイルを作成中かどうか。</summary>
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(ClearBlockedReason))]
     private bool _isGeneratingThumbnails;
 
     /// <summary>サムネイル作成の進捗表示。作成中でなければ空文字。</summary>
@@ -358,8 +361,9 @@ public sealed partial class LibraryViewModel(
     {
         var item = SelectedArchive!;
         var blocked = archives.GetRecycleBlockReason(item.FullPath);
+        // ごみ箱へ移す確認は、設定でオフにできる。元に戻せない完全削除の確認は、設定によらず必ず行う（要件定義 24.3）
         var confirmed = blocked is null
-            ? dialogs.ConfirmDeleteArchive(item.FileName)
+            ? settings?.Current.ConfirmBeforeDelete == false || dialogs.ConfirmDeleteArchive(item.FileName)
             : dialogs.ConfirmPermanentDelete(item.FileName, blocked);
         if (!confirmed)
         {
@@ -597,6 +601,30 @@ public sealed partial class LibraryViewModel(
             var mode = value ? LibraryViewMode.Thumbnail : LibraryViewMode.Detail;
             settings?.Update(s => s with { LibraryViewMode = mode });
         }
+    }
+
+    /// <inheritdoc />
+    public string? ClearBlockedReason =>
+        IsScanning ? "スキャン中は削除できません。終わってから操作してください"
+        : IsGeneratingThumbnails ? "サムネイルの作成中は削除できません。終わってから操作してください"
+        : IsOperating ? "他の操作の実行中は削除できません。終わってから操作してください"
+        : null;
+
+    /// <inheritdoc />
+    public Task<long> GetCacheSizeAsync(CancellationToken ct = default) => thumbnails.GetCacheSizeAsync(ct);
+
+    /// <inheritdoc />
+    public async Task<bool> ClearCacheAsync()
+    {
+        if (ClearBlockedReason is not null || !await thumbnails.ClearCacheAsync(_cts.Token))
+        {
+            return false;
+        }
+
+        // 記録を消したため、一覧は作成待ちの表示に戻る。順に作り直す
+        await ReloadAsync();
+        StartThumbnailProcessing();
+        return true;
     }
 
     /// <summary>設定画面を開く（画面一覧 8.3）。</summary>

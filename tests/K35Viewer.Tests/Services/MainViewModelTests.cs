@@ -1,4 +1,4 @@
-using K35Viewer.Domain;
+﻿using K35Viewer.Domain;
 using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Services;
@@ -12,16 +12,16 @@ internal sealed class MainTestHarness : IDisposable
 {
     private readonly LibraryTestContext _ctx;
 
-    public MainTestHarness(LibraryTestContext ctx, ArchiveService? archives = null)
+    public MainTestHarness(LibraryTestContext ctx, ArchiveService? archives = null, SettingsService? settings = null)
     {
         _ctx = ctx;
         Notifications = new NotificationService();
         Dialogs = new ScriptedDialogService();
         Library = new LibraryViewModel(
-            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, Dialogs, ctx.Archives, NullLogger<LibraryViewModel>.Instance);
+            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, Dialogs, ctx.Archives, NullLogger<LibraryViewModel>.Instance, settings);
         Viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
         Toasts = new ToastHostViewModel(Notifications);
-        Main = new MainViewModel(Library, Viewer, Toasts, Notifications, Dialogs, archives ?? ctx.Archives, NullLogger<MainViewModel>.Instance);
+        Main = new MainViewModel(Library, Viewer, Toasts, Notifications, Dialogs, archives ?? ctx.Archives, NullLogger<MainViewModel>.Instance, settings);
     }
 
     public NotificationService Notifications { get; }

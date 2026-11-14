@@ -79,6 +79,7 @@ public partial class App : Application
         builder.Services.AddSingleton<ViewerService>();
         builder.Services.AddSingleton<ViewerImageDecoder>();
         builder.Services.AddSingleton<LibraryViewModel>();
+builder.Services.AddSingleton<IThumbnailCacheMaintenance>(sp => sp.GetRequiredService<LibraryViewModel>());
         builder.Services.AddSingleton<ViewerViewModel>();
         builder.Services.AddSingleton<ToastHostViewModel>();
         builder.Services.AddSingleton<MainViewModel>();

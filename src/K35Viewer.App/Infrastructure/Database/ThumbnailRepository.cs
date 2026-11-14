@@ -138,6 +138,13 @@ public sealed class ThumbnailRepository(SqliteConnectionFactory connectionFactor
         return relativePath;
     }
 
+    /// <summary>サムネイルの記録をすべて削除する（キャッシュの削除。要件定義 24.5）。作り直しは、記録のないアーカイブが対象になる。</summary>
+    public async Task DeleteAllAsync(SqliteConnection connection, SqliteTransaction transaction, CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(connection, transaction, "DELETE FROM thumbnail_cache");
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
     private static string CacheKey(long archiveId) =>
         string.Create(System.Globalization.CultureInfo.InvariantCulture, $"archive-{archiveId}");
 }

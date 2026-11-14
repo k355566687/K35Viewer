@@ -33,6 +33,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly IDialogService _dialogs;
     private readonly ArchiveService _archives;
     private readonly ILogger<MainViewModel> _logger;
+    private readonly SettingsService? _settings;
+    private bool _confirmNextLeave;
     private CancellationTokenSource? _updateCts;
     private ViewerSession? _externalChangeWarnedFor;
     private bool _isTransitioning;
@@ -44,8 +46,10 @@ public sealed partial class MainViewModel : ObservableObject
         NotificationService notifications,
         IDialogService dialogs,
         ArchiveService archives,
-        ILogger<MainViewModel> logger)
+        ILogger<MainViewModel> logger,
+        SettingsService? settings = null)
     {
+        _settings = settings;
         Library = library;
         Viewer = viewer;
         Toasts = toasts;
@@ -101,6 +105,7 @@ public sealed partial class MainViewModel : ObservableObject
     /// 削除予約がなければ確認せずに <see cref="LeaveDecision.Proceed"/>。あれば変更確認ダイアログ（DLG-01）を表示する。
     /// 「変更を破棄」なら Proceed（離れると削除予約は破棄され、ZIP本体は変更されない）、キャンセルなら Stay、
     /// 「更新する」なら Update。アーカイブが外部で変更されている、ごみ箱を使えない保存先、などの場合は「更新する」を選べない。
+    /// 設定で「離れるときの確認」をオフにしている場合は、更新できるときに限り、ダイアログを出さずに Update を返す。
     /// </summary>
     public LeaveDecision DecideLeave()
     {
@@ -110,6 +115,15 @@ public sealed partial class MainViewModel : ObservableObject
         }
 
         var reason = _archives.GetUpdateBlockReason(request);
+        if (reason is null && _settings?.Current.ConfirmBeforeLeave == false && !_confirmNextLeave)
+        {
+            // 確認の設定がオフなら、確認せずに更新して離れる（要件定義 24.3）。
+            // 更新できない場合（reason がある）は、オフでも確認ダイアログを表示する
+            return LeaveDecision.Update;
+        }
+
+        // 直前の更新が失敗・キャンセルされた場合は、オフでも1回は確認する（失敗する更新を、確認なしで繰り返さない）
+        _confirmNextLeave = false;
         var choice = _dialogs.ConfirmLeaveArchive(Viewer.ArchiveName, request.EntriesToRemove.Count, reason);
         return choice switch
         {
@@ -159,6 +173,7 @@ public sealed partial class MainViewModel : ObservableObject
         }
         finally
         {
+            _confirmNextLeave = !mustLeave;
             if (!mustLeave)
             {
                 Viewer.ResumePositionSaving();

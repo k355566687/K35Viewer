@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using K35Viewer.Infrastructure;
 using K35Viewer.Infrastructure.FileSystem;
@@ -19,7 +19,7 @@ public class SettingsViewModelTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static SettingsViewModel CreateViewModel(LibraryTestContext ctx, K35Viewer.Services.SettingsService settings) =>
-        new(settings, new AppPaths(ctx.CacheDirectory), ctx.Explorer, ctx.Notifications, NullLogger<SettingsViewModel>.Instance);
+        new(settings, new AppPaths(ctx.CacheDirectory), ctx.Explorer, new NoCacheMaintenance(), ctx.Notifications, NullLogger<SettingsViewModel>.Instance);
 
     [Fact]
     public void 外観を選ぶと_その場で保存され_選んだものだけが選ばれた状態になる()
@@ -160,6 +160,22 @@ public class SettingsViewModelTests
     private static LibraryViewModel CreateLibrary(LibraryTestContext ctx, K35Viewer.Services.SettingsService settings) =>
         new(ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, new NoDialogs(), ctx.Archives,
             NullLogger<LibraryViewModel>.Instance, settings);
+
+    /// <summary>キャッシュの管理の代わり（このテストでは使わない）。</summary>
+    private sealed class NoCacheMaintenance : K35Viewer.Services.IThumbnailCacheMaintenance
+    {
+        public event System.ComponentModel.PropertyChangedEventHandler? PropertyChanged
+        {
+            add { }
+            remove { }
+        }
+
+        public string? ClearBlockedReason => null;
+
+        public Task<long> GetCacheSizeAsync(CancellationToken ct = default) => Task.FromResult(0L);
+
+        public Task<bool> ClearCacheAsync() => Task.FromResult(true);
+    }
 
     private sealed class NoDialogs : K35Viewer.Services.IDialogService
     {

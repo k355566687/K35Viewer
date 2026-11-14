@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Windows.Input;
 using K35Viewer.Services;
 using K35Viewer.Tests.Infrastructure;
@@ -24,9 +24,9 @@ public class LibraryOperationsViewModelTests
     }
 
     /// <summary>a.zip・b.zip・c.zip・sub\d.zip と、空のフォルダ dest を登録し、一覧を表示した状態にする（ファイル名の昇順）。</summary>
-    internal static async Task<MainTestHarness> OpenLibraryAsync(LibraryTestContext ctx)
+    internal static async Task<MainTestHarness> OpenLibraryAsync(LibraryTestContext ctx, SettingsService? settings = null)
     {
-        var harness = new MainTestHarness(ctx);
+        var harness = new MainTestHarness(ctx, settings: settings);
         await ctx.InitializeAsync();
         foreach (var name in new[] { "a.zip", "b.zip", "c.zip", @"sub\d.zip" })
         {

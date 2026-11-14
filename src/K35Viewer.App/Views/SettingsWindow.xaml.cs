@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using K35Viewer.ViewModels;
 
 namespace K35Viewer.Views;
@@ -10,5 +10,8 @@ public partial class SettingsWindow : Window
     {
         InitializeComponent();
         DataContext = viewModel;
+        // 開いたときにキャッシュの大きさを調べ、閉じたときにライブラリ側の通知の購読をやめる
+        Loaded += async (_, _) => await viewModel.InitializeAsync();
+        Closed += (_, _) => viewModel.Dispose();
     }
 }

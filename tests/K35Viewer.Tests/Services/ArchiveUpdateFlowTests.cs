@@ -1,4 +1,4 @@
-using System.Security.Cryptography;
+﻿using System.Security.Cryptography;
 using System.Windows;
 using System.Windows.Threading;
 using K35Viewer.Infrastructure.Archives;
@@ -37,9 +37,9 @@ public class ArchiveUpdateFlowTests
     }
 
     /// <summary>1.jpg〜3.jpg（幅 110・120・130）を持つZIPを登録し、ビューアで開いた状態にする。</summary>
-    private static async Task<MainTestHarness> OpenInMainAsync(LibraryTestContext ctx, ArchiveService? archives = null)
+    private static async Task<MainTestHarness> OpenInMainAsync(LibraryTestContext ctx, ArchiveService? archives = null, SettingsService? settings = null)
     {
-        var harness = new MainTestHarness(ctx, archives);
+        var harness = new MainTestHarness(ctx, archives, settings);
         await ctx.InitializeAsync();
         ctx.CreateZip(
             "book.zip",
@@ -179,6 +179,94 @@ public class ArchiveUpdateFlowTests
         await harness.Viewer.CloseAsync();
     }
 
+    // ---- 離れるときの確認をオフにした場合（要件定義 24.3） ----
+
+    [Fact]
+    public async Task 離れるときの確認をオフにすると_確認せずに更新して離れる()
+    {
+        using var ctx = new LibraryTestContext();
+        var settings = ctx.CreateSettings();
+        settings.Update(s => s with { ConfirmBeforeLeave = false });
+        using var harness = await OpenInMainAsync(ctx, settings: settings);
+        var original = Hash(ctx.PathOf("book.zip"));
+        harness.Viewer.ToggleDeleteCommand.Execute(null); // 1.jpg を削除予約
+        harness.Dialogs.Choice = LeaveChoice.Cancel; // 確認が出たら、キャンセルになる
+
+        harness.Viewer.RequestCloseCommand.Execute(null);
+        await WaitUntilAsync(() => !harness.Viewer.IsOpen && harness.Main.IsLibraryVisible);
+
+        Assert.Empty(harness.Dialogs.LeaveConfirmations);
+        Assert.Equal(["2.jpg", "3.jpg"], EntryNames(ctx.PathOf("book.zip")));
+        Assert.NotEqual(original, Hash(ctx.PathOf("book.zip")));
+        Assert.Single(ctx.RecycleBin.Items); // 更新前のアーカイブは、オンのときと同じくごみ箱へ退避する
+    }
+
+    [Fact]
+    public async Task 離れるときの確認をオフにしても_削除予約がなければ何も起きない()
+    {
+        using var ctx = new LibraryTestContext();
+        var settings = ctx.CreateSettings();
+        settings.Update(s => s with { ConfirmBeforeLeave = false });
+        using var harness = await OpenInMainAsync(ctx, settings: settings);
+
+        Assert.Equal(LeaveDecision.Proceed, harness.Main.DecideLeave());
+        Assert.Empty(harness.Dialogs.LeaveConfirmations);
+        await harness.Viewer.CloseAsync();
+    }
+
+    [Fact]
+    public async Task 離れるときの確認をオフにしても_更新できない場合は確認する()
+    {
+        using var ctx = new LibraryTestContext();
+        var settings = ctx.CreateSettings();
+        settings.Update(s => s with { ConfirmBeforeLeave = false });
+        using var harness = await OpenInMainAsync(ctx, settings: settings);
+        harness.Viewer.ToggleDeleteCommand.Execute(null);
+        ctx.CreateZip("book.zip", ("x.jpg", TestImages.Jpeg(50, 50))); // 外部で書き換えられた
+        harness.Dialogs.Choice = LeaveChoice.Discard;
+
+        Assert.Equal(LeaveDecision.Proceed, harness.Main.DecideLeave()); // 「変更を破棄」を選んだ
+
+        var confirmation = Assert.Single(harness.Dialogs.LeaveConfirmations);
+        Assert.Contains("外部で変更", confirmation.UpdateUnavailableReason, StringComparison.Ordinal);
+        await harness.Viewer.CloseAsync();
+    }
+
+    [Fact]
+    public async Task 離れるときの確認をオフにして更新をキャンセルしたあとは_次に離れるとき確認する()
+    {
+        using var ctx = new LibraryTestContext();
+        using var started = new ManualResetEventSlim();
+        var writer = new ScriptedArchiveWriter(new ArchiveWriter())
+        {
+            OnRebuild = (_, destination, _, ct) =>
+            {
+                File.WriteAllText(destination, "書きかけ");
+                started.Set();
+                _ = ct.WaitHandle.WaitOne(TimeSpan.FromSeconds(15));
+                ct.ThrowIfCancellationRequested();
+                return null;
+            },
+        };
+        var settings = ctx.CreateSettings();
+        settings.Update(s => s with { ConfirmBeforeLeave = false });
+        using var harness = await OpenInMainAsync(ctx, ctx.CreateArchiveService(writer), settings);
+        harness.Viewer.ToggleDeleteCommand.Execute(null);
+        harness.Dialogs.Choice = LeaveChoice.Cancel;
+
+        harness.Viewer.RequestCloseCommand.Execute(null); // 確認なしで更新が始まる
+        Assert.True(started.Wait(TimeSpan.FromSeconds(15), Ct));
+        await WaitUntilAsync(() => harness.Main.IsUpdating);
+        harness.Main.CancelUpdateCommand.Execute(null);
+        await WaitUntilAsync(() => !harness.Main.IsUpdating);
+        Assert.Empty(harness.Dialogs.LeaveConfirmations);
+        Assert.True(harness.Viewer.IsOpen);
+
+        // 失敗する更新を確認なしで繰り返さないよう、今度は確認を表示する
+        Assert.Equal(LeaveDecision.Stay, harness.Main.DecideLeave());
+        Assert.Single(harness.Dialogs.LeaveConfirmations);
+        await harness.Viewer.CloseAsync();
+    }
     [Fact]
     public async Task 更新中は画面の操作を受け付けず_キャンセルできる間はキャンセルでき_元のアーカイブと削除予約が残る()
     {
