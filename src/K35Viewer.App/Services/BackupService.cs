@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -46,11 +46,11 @@ public sealed partial class BackupService(
     /// <summary>バックアップの ZIP の形式の版。中身の構成を変えたときに上げる。</summary>
     public const int FormatVersion = 1;
 
-    public const string DatabaseEntry = "library.db";
+    public const string DatabaseEntry = Infrastructure.Backup.BackupEntries.Database;
 
-    public const string SettingsEntry = "settings.json";
+    public const string SettingsEntry = Infrastructure.Backup.BackupEntries.Settings;
 
-    public const string ManifestEntry = "manifest.json";
+    public const string ManifestEntry = Infrastructure.Backup.BackupEntries.Manifest;
 
     private static readonly Regex NamePattern = NameRegex();
 

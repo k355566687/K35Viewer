@@ -9,6 +9,47 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace K35Viewer.Tests.Services;
 
+/// <summary>復元のダイアログの代わり。選ぶファイルと、確認の答えをあらかじめ決めておく。</summary>
+internal sealed class FakeBackupDialogs : IBackupDialogs
+{
+    /// <summary>選ぶファイル。null ならキャンセル。</summary>
+    public string? PickResult { get; set; }
+
+    /// <summary>確認の答え。</summary>
+    public bool Confirm { get; set; }
+
+    public int PickCalls { get; private set; }
+
+    public List<DateTime> Confirmations { get; } = [];
+
+    public string? PickBackupFile(string initialDirectory)
+    {
+        PickCalls++;
+        return PickResult;
+    }
+
+    public bool ConfirmRestore(DateTime createdAt)
+    {
+        Confirmations.Add(createdAt);
+        return Confirm;
+    }
+}
+
+/// <summary>再起動の代わり（自動テストは、アプリを終了しない）。</summary>
+internal sealed class FakeAppRestarter : IAppRestarter
+{
+    public int Calls { get; private set; }
+
+    /// <summary>false にすると、再起動できなかった場合を再現する。</summary>
+    public bool Result { get; set; } = true;
+
+    public bool TryRestart()
+    {
+        Calls++;
+        return Result;
+    }
+}
+
 /// <summary>通知を記録するだけのテスト用実装。</summary>
 internal sealed class FakeNotificationService : INotificationService
 {
@@ -318,6 +359,22 @@ internal sealed class LibraryTestContext : IDisposable
 
     /// <summary>一時DBへの接続の生成元。</summary>
     public K35Viewer.Infrastructure.Database.SqliteConnectionFactory ConnectionFactory => _db.Factory;
+
+    /// <summary>復元のサービスを作る（展開先などは、キャッシュのフォルダの中。テストの後始末で消える）。</summary>
+    public RestoreService CreateRestoreService(K35Viewer.Services.SettingsService? settings = null, TimeProvider? clock = null) =>
+        new(new K35Viewer.Infrastructure.FileSystem.AppPaths(CacheDirectory), CreateBackupService(settings, clock),
+            NullLogger<RestoreService>.Instance);
+
+    /// <summary>設定画面の ViewModel を作る。</summary>
+    public K35Viewer.ViewModels.SettingsViewModel CreateSettingsViewModel(
+        K35Viewer.Services.SettingsService settings,
+        IThumbnailCacheMaintenance cache,
+        TimeProvider? clock = null,
+        FakeBackupDialogs? dialogs = null,
+        FakeAppRestarter? restarter = null) =>
+        new(settings, new K35Viewer.Infrastructure.FileSystem.AppPaths(CacheDirectory), Explorer, cache,
+            CreateBackupService(settings, clock), CreateRestoreService(settings, clock), dialogs ?? new FakeBackupDialogs(),
+            restarter ?? new FakeAppRestarter(), Notifications, NullLogger<K35Viewer.ViewModels.SettingsViewModel>.Instance);
 
     /// <summary>バックアップのサービスを作る（保存先は、キャッシュのフォルダの中の backups。テストの後始末で消える）。</summary>
     public BackupService CreateBackupService(K35Viewer.Services.SettingsService? settings = null, TimeProvider? clock = null) =>

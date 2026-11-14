@@ -152,6 +152,12 @@
                                 Command="{Binding CreateBackupCommand}"
                                 ToolTip="ライブラリの情報、閲覧位置、操作履歴、設定を、1つのファイルにまとめて保存します"
                                 AutomationProperties.Name="バックアップを作成" />
+                        <Button Content="復元…"
+                                Padding="12,4"
+                                Margin="8,0,0,0"
+                                Command="{Binding RestoreBackupCommand}"
+                                ToolTip="バックアップのファイルを選んで、アプリのデータをその時点に戻します。アプリを再起動します"
+                                AutomationProperties.Name="バックアップから復元" />
                         <Button Content="フォルダを開く"
                                 Padding="12,4"
                                 Margin="8,0,0,0"

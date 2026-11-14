@@ -18,6 +18,9 @@ public sealed partial class SettingsViewModel(
     IExplorerLauncher explorer,
     IThumbnailCacheMaintenance thumbnailCache,
     BackupService backups,
+    RestoreService restore,
+    IBackupDialogs backupDialogs,
+    IAppRestarter restarter,
     INotificationService notifications,
     ILogger<SettingsViewModel> logger) : ObservableObject, IDisposable
 {
@@ -88,7 +91,7 @@ public sealed partial class SettingsViewModel(
 
     private bool _isBackingUp;
 
-    private bool CanCreateBackup() => !_isBackingUp;
+    private bool CanCreateBackup() => !_isBackingUp && !_isRestoring;
 
     /// <summary>アプリのデータのバックアップを作る。</summary>
     [RelayCommand(CanExecute = nameof(CanCreateBackup))]
@@ -111,6 +114,62 @@ public sealed partial class SettingsViewModel(
             _isBackingUp = false;
             CreateBackupCommand.NotifyCanExecuteChanged();
             await RefreshLastBackupAsync();
+        }
+    }
+
+    private bool _isRestoring;
+
+    private bool CanRestoreBackup() => !_isRestoring && !_isBackingUp;
+
+    /// <summary>
+    /// バックアップを選んで、アプリのデータをその時点に戻す。確認のうえ、今のデータを自動でバックアップし、
+    /// アプリを再起動して入れ替える（起動の最初に入れ替わる）。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanRestoreBackup))]
+    private async Task RestoreBackupAsync()
+    {
+        var file = backupDialogs.PickBackupFile(paths.BackupsDirectory);
+        if (file is null)
+        {
+            return;
+        }
+
+        _isRestoring = true;
+        RestoreBackupCommand.NotifyCanExecuteChanged();
+        try
+        {
+            var check = await restore.CheckAsync(file);
+            if (!check.IsValid)
+            {
+                notifications.ShowError(check.Error ?? "復元できません");
+                return;
+            }
+
+            if (!backupDialogs.ConfirmRestore(check.Manifest!.CreatedAt.DateTime))
+            {
+                return;
+            }
+
+            await restore.PrepareAsync(file);
+            if (!restarter.TryRestart())
+            {
+                // 予定は残してある。アプリを終了して、起動し直すと、入れ替わる
+                notifications.ShowWarning("復元の準備はできましたが、アプリを再起動できませんでした。アプリを終了して、起動し直すと、復元されます");
+            }
+        }
+        catch (RestoreRejectedException ex)
+        {
+            notifications.ShowError(ex.Message);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            LogBackupFailed(logger, ex);
+            notifications.ShowError("復元の準備に失敗しました。データは変更していません");
+        }
+        finally
+        {
+            _isRestoring = false;
+            RestoreBackupCommand.NotifyCanExecuteChanged();
         }
     }
 

@@ -1,4 +1,4 @@
-namespace K35Viewer.Infrastructure.FileSystem;
+﻿namespace K35Viewer.Infrastructure.FileSystem;
 
 /// <summary>
 /// 実行時データ（DB・サムネイル・ログ・一時ファイル）の配置先を表す。
@@ -15,7 +15,19 @@ public sealed class AppPaths
         TempDirectory = Path.Combine(root, "temp");
         SettingsFile = Path.Combine(root, "settings.json");
         BackupsDirectory = Path.Combine(root, "backups");
+        RestorePendingFile = Path.Combine(root, "restore-pending.json");
+        RestoreStagingDirectory = Path.Combine(root, "restore-staging");
+        RestoreRollbackDirectory = Path.Combine(root, "restore-rollback");
     }
+
+    /// <summary>復元の入れ替えの予定の目印。あれば、次の起動の最初に入れ替える（要件定義 24.5）。</summary>
+    public string RestorePendingFile { get; }
+
+    /// <summary>復元元のバックアップを展開したファイルを、入れ替えまで置くフォルダ。</summary>
+    public string RestoreStagingDirectory { get; }
+
+    /// <summary>入れ替えの間だけ、元のファイルを退避するフォルダ。入れ替えが終われば消える（残っていれば、途中で止まった印）。</summary>
+    public string RestoreRollbackDirectory { get; }
 
     /// <summary>バックアップのファイルを置くフォルダ（要件定義 24.5）。最初のバックアップを作るときに作る。</summary>
     public string BackupsDirectory { get; }

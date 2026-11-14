@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using System.Text.Json;
 using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Settings;
@@ -213,9 +213,7 @@ public class BackupServiceTests
         await ctx.InitializeAsync();
         var settings = ctx.CreateSettings();
         var paths = new AppPaths(ctx.CacheDirectory);
-        using var viewModel = new SettingsViewModel(
-            settings, paths, ctx.Explorer, new NoCache(), ctx.CreateBackupService(settings, NewClock()), ctx.Notifications,
-            NullLogger<SettingsViewModel>.Instance);
+        using var viewModel = ctx.CreateSettingsViewModel(settings, new NoCache(), NewClock());
         await viewModel.InitializeAsync();
         Assert.Equal("まだありません", viewModel.LastBackupText);
 
@@ -233,9 +231,7 @@ public class BackupServiceTests
         using var ctx = new LibraryTestContext();
         await ctx.InitializeAsync();
         var settings = ctx.CreateSettings();
-        using var viewModel = new SettingsViewModel(
-            settings, new AppPaths(ctx.CacheDirectory), ctx.Explorer, new NoCache(), ctx.CreateBackupService(settings),
-            ctx.Notifications, NullLogger<SettingsViewModel>.Instance);
+        using var viewModel = ctx.CreateSettingsViewModel(settings, new NoCache());
         Assert.Equal(5, viewModel.AutoBackupKeepCount);
         Assert.Equal(Enumerable.Range(1, 20), viewModel.AutoBackupKeepChoices);
 

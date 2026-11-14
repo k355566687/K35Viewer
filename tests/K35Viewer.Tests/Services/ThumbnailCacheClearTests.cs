@@ -14,8 +14,7 @@ public class ThumbnailCacheClearTests
 
     private static SettingsViewModel CreateViewModel(
         LibraryTestContext ctx, FakeThumbnailCacheMaintenance cache, SettingsService? settings = null) =>
-        new(settings ?? ctx.CreateSettings(), new AppPaths(ctx.CacheDirectory), ctx.Explorer, cache, ctx.CreateBackupService(settings), ctx.Notifications,
-            NullLogger<SettingsViewModel>.Instance);
+        ctx.CreateSettingsViewModel(settings ?? ctx.CreateSettings(), cache);
 
     [Fact]
     public void キャッシュの削除は_サムネイルのファイルだけを消し_同じフォルダのほかのファイルには触れない()

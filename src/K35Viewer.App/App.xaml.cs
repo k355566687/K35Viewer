@@ -1,6 +1,7 @@
 ﻿using System.Windows;
 using K35Viewer.Infrastructure;
 using K35Viewer.Infrastructure.Archives;
+using K35Viewer.Infrastructure.Backup;
 using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Thumbnails;
@@ -26,6 +27,8 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // 復元のために再起動された場合は、古いプロセスが終わるまで待つ（待たないと、二重の起動として止められる）
+        RestartArguments.WaitForPreviousProcess(e.Args);
         // 二重に起動された場合は、すでに動いている方を前面に出して終了する
         _singleInstance = SingleInstanceGuard.Acquire();
         if (!_singleInstance.IsFirstInstance)
@@ -37,6 +40,8 @@ public partial class App : Application
 
         var paths = AppPaths.CreateDefault();
         paths.EnsureDirectories();
+        // 復元の予定があれば、DB を開く前に、データを入れ替える（要件定義 24.5）。結果は、画面を出してから知らせる
+        var restoreResult = PendingRestore.TryApply(paths);
 
         // 基準のフォルダは、起動したときのカレントフォルダではなく、実行ファイルの場所にする
         var builder = Host.CreateApplicationBuilder(new HostApplicationBuilderSettings
@@ -69,6 +74,9 @@ public partial class App : Application
         builder.Services.AddSingleton(new SettingsStore(paths.SettingsFile));
         builder.Services.AddSingleton<SettingsService>();
         builder.Services.AddSingleton<BackupService>();
+        builder.Services.AddSingleton<RestoreService>();
+        builder.Services.AddSingleton<IBackupDialogs, WpfBackupDialogs>();
+        builder.Services.AddSingleton<IAppRestarter, WpfAppRestarter>();
         builder.Services.AddTransient<SettingsViewModel>();
         builder.Services.AddSingleton<Func<SettingsViewModel>>(sp => sp.GetRequiredService<SettingsViewModel>);
         builder.Services.AddSingleton<IDialogService, WpfDialogService>();
@@ -129,12 +137,42 @@ builder.Services.AddSingleton<IThumbnailCacheMaintenance>(sp => sp.GetRequiredSe
         _host.Services.GetRequiredService<MainWindow>().Show();
         _ = maintenance.RunAsync();
 
+        ReportRestoreResult(restoreResult, logger);
         if (settings.LoadFailed)
         {
             _host.Services.GetRequiredService<NotificationService>().ShowWarning(
                 "設定のファイルを読めなかったため、初期の設定で起動しました。設定画面で設定し直してください");
         }
     }
+
+    private void ReportRestoreResult(RestoreApplyResult result, ILogger logger)
+    {
+        var notifications = _host!.Services.GetRequiredService<NotificationService>();
+        switch (result.Outcome)
+        {
+            case RestoreApplyOutcome.Succeeded:
+                LogRestored(logger);
+                notifications.ShowSuccess(
+                    result.BackupCreatedAt is { } createdAt
+                        ? string.Create(
+                            System.Globalization.CultureInfo.CurrentCulture,
+                            $"{createdAt.DateTime:yyyy/MM/dd HH:mm} のバックアップから復元しました。サムネイルを作り直します")
+                        : "バックアップから復元しました。サムネイルを作り直します");
+                break;
+            case RestoreApplyOutcome.Failed:
+                LogRestoreFailed(logger, result.Message ?? string.Empty);
+                notifications.ShowError(result.Message ?? "復元できませんでした");
+                break;
+            default:
+                break;
+        }
+    }
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "バックアップから復元しました。")]
+    private static partial void LogRestored(ILogger logger);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "復元できませんでした。{Message}")]
+    private static partial void LogRestoreFailed(ILogger logger, string message);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "35Viewer started. DataRoot={Root}")]
     private static partial void LogStarted(ILogger logger, string root);
