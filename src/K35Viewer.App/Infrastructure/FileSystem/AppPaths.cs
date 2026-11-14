@@ -14,7 +14,11 @@ public sealed class AppPaths
         LogsDirectory = Path.Combine(root, "logs");
         TempDirectory = Path.Combine(root, "temp");
         SettingsFile = Path.Combine(root, "settings.json");
+        BackupsDirectory = Path.Combine(root, "backups");
     }
+
+    /// <summary>バックアップのファイルを置くフォルダ（要件定義 24.5）。最初のバックアップを作るときに作る。</summary>
+    public string BackupsDirectory { get; }
 
     public string Root { get; }
 

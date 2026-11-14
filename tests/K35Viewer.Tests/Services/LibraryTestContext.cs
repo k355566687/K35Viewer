@@ -1,4 +1,4 @@
-using K35Viewer.Domain;
+﻿using K35Viewer.Domain;
 using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
@@ -315,6 +315,14 @@ internal sealed class LibraryTestContext : IDisposable
     }
 
     public FakeNotificationService Notifications { get; } = new();
+
+    /// <summary>一時DBへの接続の生成元。</summary>
+    public K35Viewer.Infrastructure.Database.SqliteConnectionFactory ConnectionFactory => _db.Factory;
+
+    /// <summary>バックアップのサービスを作る（保存先は、キャッシュのフォルダの中の backups。テストの後始末で消える）。</summary>
+    public BackupService CreateBackupService(K35Viewer.Services.SettingsService? settings = null, TimeProvider? clock = null) =>
+        new(new K35Viewer.Infrastructure.FileSystem.AppPaths(CacheDirectory), ConnectionFactory, settings ?? CreateSettings(),
+            NullLogger<BackupService>.Instance, clock);
 
     public LibraryService Library { get; }
 

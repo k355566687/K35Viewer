@@ -14,7 +14,7 @@ public class ThumbnailCacheClearTests
 
     private static SettingsViewModel CreateViewModel(
         LibraryTestContext ctx, FakeThumbnailCacheMaintenance cache, SettingsService? settings = null) =>
-        new(settings ?? ctx.CreateSettings(), new AppPaths(ctx.CacheDirectory), ctx.Explorer, cache, ctx.Notifications,
+        new(settings ?? ctx.CreateSettings(), new AppPaths(ctx.CacheDirectory), ctx.Explorer, cache, ctx.CreateBackupService(settings), ctx.Notifications,
             NullLogger<SettingsViewModel>.Instance);
 
     [Fact]

@@ -41,6 +41,15 @@ public sealed record AppSettings
     /// <summary>アーカイブをごみ箱へ移す前に、確認する（DLG-02）。完全削除の確認は、この設定によらず常に行う。</summary>
     public bool ConfirmBeforeDelete { get; init; } = true;
 
+    /// <summary>自動で作ったバックアップを残す数（要件定義 24.5）。範囲は <see cref="MinAutoBackupKeepCount"/> 〜 <see cref="MaxAutoBackupKeepCount"/>。</summary>
+    public int AutoBackupKeepCount { get; init; } = DefaultAutoBackupKeepCount;
+
+    public const int MinAutoBackupKeepCount = 1;
+
+    public const int MaxAutoBackupKeepCount = 20;
+
+    public const int DefaultAutoBackupKeepCount = 5;
+
     public LibraryViewMode LibraryViewMode { get; init; } = LibraryViewMode.Detail;
 
     public ViewerViewMode ViewerViewMode { get; init; } = ViewerViewMode.SinglePage;

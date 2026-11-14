@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using K35Viewer.Infrastructure;
 using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Database;
@@ -68,6 +68,7 @@ public partial class App : Application
         builder.Services.AddSingleton<ThumbnailImageLoader>(sp => new ThumbnailImageLoader(sp.GetRequiredService<ThumbnailCacheStore>()));
         builder.Services.AddSingleton(new SettingsStore(paths.SettingsFile));
         builder.Services.AddSingleton<SettingsService>();
+        builder.Services.AddSingleton<BackupService>();
         builder.Services.AddTransient<SettingsViewModel>();
         builder.Services.AddSingleton<Func<SettingsViewModel>>(sp => sp.GetRequiredService<SettingsViewModel>);
         builder.Services.AddSingleton<IDialogService, WpfDialogService>();

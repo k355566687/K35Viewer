@@ -19,7 +19,7 @@ public class SettingsViewModelTests
     private static CancellationToken Ct => TestContext.Current.CancellationToken;
 
     private static SettingsViewModel CreateViewModel(LibraryTestContext ctx, K35Viewer.Services.SettingsService settings) =>
-        new(settings, new AppPaths(ctx.CacheDirectory), ctx.Explorer, new NoCacheMaintenance(), ctx.Notifications, NullLogger<SettingsViewModel>.Instance);
+        new(settings, new AppPaths(ctx.CacheDirectory), ctx.Explorer, new NoCacheMaintenance(), ctx.CreateBackupService(settings), ctx.Notifications, NullLogger<SettingsViewModel>.Instance);
 
     [Fact]
     public void 外観を選ぶと_その場で保存され_選んだものだけが選ばれた状態になる()

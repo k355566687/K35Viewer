@@ -1,4 +1,4 @@
-using CommunityToolkit.Mvvm.ComponentModel;
+﻿using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using K35Viewer.Infrastructure;
 using K35Viewer.Infrastructure.FileSystem;
@@ -17,6 +17,7 @@ public sealed partial class SettingsViewModel(
     AppPaths paths,
     IExplorerLauncher explorer,
     IThumbnailCacheMaintenance thumbnailCache,
+    BackupService backups,
     INotificationService notifications,
     ILogger<SettingsViewModel> logger) : ObservableObject, IDisposable
 {
@@ -55,6 +56,100 @@ public sealed partial class SettingsViewModel(
         thumbnailCache.ClearBlockedReason
         ?? "サムネイルのキャッシュを削除します。削除したサムネイルは、順に作り直します（アーカイブ自体は変わりません）";
 
+    // バックアップ（要件定義 24.5）
+
+    /// <summary>自動バックアップを残す数。</summary>
+    public int AutoBackupKeepCount
+    {
+        get => Math.Clamp(settings.Current.AutoBackupKeepCount, AppSettings.MinAutoBackupKeepCount, AppSettings.MaxAutoBackupKeepCount);
+        set
+        {
+            var clamped = Math.Clamp(value, AppSettings.MinAutoBackupKeepCount, AppSettings.MaxAutoBackupKeepCount);
+            settings.Update(s => s with { AutoBackupKeepCount = clamped });
+            OnPropertyChanged();
+            if (settings.Current.AutoBackupKeepCount == clamped)
+            {
+                // 数を減らした場合は、すぐに古い自動バックアップを整理する
+                PruneAutoBackups();
+            }
+        }
+    }
+
+    /// <summary>「自動バックアップを残す数」の選択肢。</summary>
+    public IReadOnlyList<int> AutoBackupKeepChoices { get; } =
+        [.. Enumerable.Range(AppSettings.MinAutoBackupKeepCount, AppSettings.MaxAutoBackupKeepCount - AppSettings.MinAutoBackupKeepCount + 1)];
+
+    /// <summary>最後のバックアップの表示（例: 「2026/11/13 10:20（手動）」。ないときは「まだありません」）。</summary>
+    [ObservableProperty]
+    private string _lastBackupText = "調べています…";
+
+    /// <summary>バックアップの保存先。</summary>
+    public string BackupsFolder => paths.BackupsDirectory;
+
+    private bool _isBackingUp;
+
+    private bool CanCreateBackup() => !_isBackingUp;
+
+    /// <summary>アプリのデータのバックアップを作る。</summary>
+    [RelayCommand(CanExecute = nameof(CanCreateBackup))]
+    private async Task CreateBackupAsync()
+    {
+        _isBackingUp = true;
+        CreateBackupCommand.NotifyCanExecuteChanged();
+        try
+        {
+            var backup = await backups.CreateAsync(BackupKind.Manual);
+            notifications.ShowSuccess($"バックアップを作成しました（{backup.FileName}）");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            LogBackupFailed(logger, ex);
+            notifications.ShowError("バックアップを作成できませんでした");
+        }
+        finally
+        {
+            _isBackingUp = false;
+            CreateBackupCommand.NotifyCanExecuteChanged();
+            await RefreshLastBackupAsync();
+        }
+    }
+
+    [RelayCommand]
+    private void OpenBackupsFolder() => Open(() => explorer.OpenFolder(paths.BackupsDirectory));
+
+    private async Task RefreshLastBackupAsync()
+    {
+        try
+        {
+            var list = await Task.Run(backups.List);
+            var latest = list.Count > 0 ? list[0] : null;
+            LastBackupText = latest is null
+                ? "まだありません"
+                : string.Create(
+                    System.Globalization.CultureInfo.CurrentCulture,
+                    $"{latest.CreatedAt:yyyy/MM/dd HH:mm}（{(latest.Kind == BackupKind.Auto ? "自動" : "手動")}）");
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LogBackupFailed(logger, ex);
+            LastBackupText = "調べられませんでした";
+        }
+    }
+
+    private void PruneAutoBackups()
+    {
+        try
+        {
+            backups.PruneAutoBackups(settings.Current.AutoBackupKeepCount);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            LogBackupFailed(logger, ex);
+        }
+
+        _ = RefreshLastBackupAsync();
+    }
+
     /// <summary>設定画面を開いたときに呼ぶ。キャッシュの大きさを調べ、削除できる状態の変化を追う。</summary>
     public async Task InitializeAsync()
     {
@@ -65,7 +160,7 @@ public sealed partial class SettingsViewModel(
 
         _started = true;
         thumbnailCache.PropertyChanged += OnThumbnailCacheChanged;
-        await RefreshCacheSizeAsync();
+        await Task.WhenAll(RefreshCacheSizeAsync(), RefreshLastBackupAsync());
     }
 
     /// <summary>設定画面を閉じるときに呼ぶ（ライブラリ側の通知の購読をやめる）。</summary>
@@ -197,6 +292,9 @@ public sealed partial class SettingsViewModel(
             notifications.ShowError("開けませんでした");
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "バックアップの作成または一覧の取得に失敗しました。")]
+    private static partial void LogBackupFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "サムネイルのキャッシュの大きさを調べられませんでした。")]
     private static partial void LogCacheSizeFailed(ILogger logger, Exception exception);
