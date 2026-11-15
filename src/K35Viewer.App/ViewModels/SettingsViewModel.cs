@@ -265,10 +265,21 @@ public sealed partial class SettingsViewModel(
         using var cts = new CancellationTokenSource();
         _updateCts = cts;
         IsUpdateBusy = true;
-        var progress = new Progress<UpdateProgress>(p => UpdateStatusText = DescribeProgress(p));
+
+        // 更新の間は、画面全体を覆う「更新しています」の表示を出し、ほかの操作を受け付けない（中止だけ押せる）
+        _isStartingUpdate = false;
+        UpdateProgressText = "準備しています…";
+        UpdateProgressPercent = 0;
+        IsUpdateProgressIndeterminate = true;
+        IsInstallingUpdate = true;
+        var progress = new Progress<UpdateProgress>(OnInstallProgress);
+        var launched = false;
         try
         {
             await updates.InstallAsync(release, progress, cts.Token);
+
+            // 新しい版を起動して、このアプリは終了する。終わるまで、表示は、そのまま残す
+            launched = true;
         }
         catch (OperationCanceledException)
         {
@@ -289,10 +300,56 @@ public sealed partial class SettingsViewModel(
         {
             _updateCts = null;
             IsUpdateBusy = false;
+            if (!launched)
+            {
+                IsInstallingUpdate = false;
+            }
         }
     }
 
-    private bool CanCancelUpdate() => IsUpdateBusy;
+    /// <summary>
+    /// 更新の間、画面全体を覆って、ほかの操作を受け付けないようにするか（要件定義 24.6、画面一覧 8.3）。
+    /// ダウンロード、確認、展開、バックアップ、新しい版の起動の間。失敗・中止すれば、元に戻る。新しい版を起動したあとは、アプリが終わるまで、残る。
+    /// </summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSettingsEnabled))]
+    private bool _isInstallingUpdate;
+
+    /// <summary>設定画面の項目を、操作できるか（更新の間は、操作できない）。</summary>
+    public bool IsSettingsEnabled => !IsInstallingUpdate;
+
+    /// <summary>更新の表示に出す、今していることの説明。</summary>
+    [ObservableProperty]
+    private string _updateProgressText = string.Empty;
+
+    /// <summary>ダウンロードの進み具合（0〜100）。大きさが分からない間は使わない（<see cref="IsUpdateProgressIndeterminate"/>）。</summary>
+    [ObservableProperty]
+    private double _updateProgressPercent;
+
+    /// <summary>進み具合が分からない（確認、展開、バックアップなど）か。棒を、動き続ける表示にする。</summary>
+    [ObservableProperty]
+    private bool _isUpdateProgressIndeterminate = true;
+
+    private bool _isStartingUpdate;
+
+    private void OnInstallProgress(UpdateProgress progress)
+    {
+        var text = DescribeProgress(progress);
+        UpdateStatusText = text;
+        UpdateProgressText = text;
+        var known = progress.Phase == UpdatePhase.Downloading && progress.Total > 0;
+        IsUpdateProgressIndeterminate = !known;
+        UpdateProgressPercent = known ? Math.Clamp(progress.Done * 100.0 / progress.Total, 0, 100) : 0;
+
+        // 新しい版を起動する段階に入ったら、もう中止できない
+        if (progress.Phase == UpdatePhase.Starting && !_isStartingUpdate)
+        {
+            _isStartingUpdate = true;
+            CancelUpdateCommand.NotifyCanExecuteChanged();
+        }
+    }
+
+    private bool CanCancelUpdate() => IsUpdateBusy && !_isStartingUpdate;
 
     /// <summary>確認やダウンロードを中止する。</summary>
     [RelayCommand(CanExecute = nameof(CanCancelUpdate))]

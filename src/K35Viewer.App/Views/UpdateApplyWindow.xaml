@@ -1,0 +1,39 @@
+<Window x:Class="K35Viewer.Views.UpdateApplyWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="35Viewer の更新"
+        Width="460"
+        SizeToContent="Height"
+        WindowStyle="None"
+        ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen"
+        Topmost="True"
+        ShowInTaskbar="True">
+    <!--
+        アプリの更新で、アプリのフォルダを入れ替えている間だけ出すウィンドウ（内部アーキテクチャ設計書 36章）。
+        古いアプリが終わってから、新しい版の画面が出るまでの間、何も表示されない時間をなくす。
+        操作はできない。閉じられない（入れ替えが終わると、自動で消える）。
+    -->
+    <Border BorderThickness="1"
+            BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+            Padding="28,24">
+        <StackPanel>
+            <TextBlock x:Name="TitleText"
+                       FontSize="20"
+                       FontWeight="SemiBold"
+                       TextWrapping="Wrap"
+                       AutomationProperties.Name="更新の表示" />
+            <TextBlock Text="しばらくお待ちください。終わると、アプリが自動で起動します。"
+                       Margin="0,14,0,0"
+                       TextWrapping="Wrap" />
+            <ProgressBar IsIndeterminate="True"
+                         Height="6"
+                         Margin="0,16,0,0"
+                         AutomationProperties.Name="更新の進み具合の棒" />
+            <TextBlock Text="このウィンドウは、閉じないでください。"
+                       Margin="0,14,0,0"
+                       TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+        </StackPanel>
+    </Border>
+</Window>

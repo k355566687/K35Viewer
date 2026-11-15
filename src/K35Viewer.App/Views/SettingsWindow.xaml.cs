@@ -13,5 +13,13 @@ public partial class SettingsWindow : Window
         // 開いたときにキャッシュの大きさを調べ、閉じたときにライブラリ側の通知の購読をやめる
         Loaded += async (_, _) => await viewModel.InitializeAsync();
         Closed += (_, _) => viewModel.Dispose();
+        // 更新の間は、閉じられない（中止してから閉じる）。アプリの終了（新しい版への入れ替え）は、止めない
+        Closing += (_, e) =>
+        {
+            if (viewModel.IsInstallingUpdate && !Dispatcher.HasShutdownStarted)
+            {
+                e.Cancel = true;
+            }
+        };
     }
 }

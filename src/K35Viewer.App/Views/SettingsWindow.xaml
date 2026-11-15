@@ -13,6 +13,7 @@
         見出しで区切った項目を、上から順に並べる。Esc または「閉じる」で閉じる。
     -->
     <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
         <Style x:Key="SectionHeader" TargetType="TextBlock">
             <Setter Property="FontSize" Value="18" />
             <Setter Property="FontWeight" Value="SemiBold" />
@@ -35,7 +36,8 @@
             <Setter Property="Margin" Value="0,0,8,0" />
         </Style>
     </Window.Resources>
-    <DockPanel>
+    <Grid>
+    <DockPanel IsEnabled="{Binding IsSettingsEnabled}">
         <Border DockPanel.Dock="Bottom"
                 BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
                 BorderThickness="0,1,0,0"
@@ -251,4 +253,48 @@
             </StackPanel>
         </ScrollViewer>
     </DockPanel>
+    <!--
+        更新の間（ダウンロード、確認、展開、バックアップ、新しい版の起動）だけ出す表示。画面全体を覆い、下の項目を操作できなくする
+        （下の項目は IsEnabled=false にもしている。キーボードでも操作できない）。押せるのは「中止」だけ
+    -->
+    <Grid Background="#B3000000"
+          Visibility="{Binding IsInstallingUpdate, Converter={StaticResource BoolToVisibility}}"
+          AutomationProperties.Name="更新中の表示">
+        <Border HorizontalAlignment="Center"
+                VerticalAlignment="Center"
+                MinWidth="440"
+                MaxWidth="560"
+                Padding="28,24"
+                CornerRadius="8"
+                BorderThickness="1"
+                Background="{DynamicResource SolidBackgroundFillColorTertiaryBrush}"
+                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}">
+            <StackPanel>
+                <TextBlock Text="アプリを更新しています"
+                           FontSize="20"
+                           FontWeight="SemiBold" />
+                <TextBlock Text="{Binding UpdateProgressText}"
+                           Margin="0,14,0,0"
+                           TextWrapping="Wrap"
+                           AutomationProperties.Name="更新の進み具合" />
+                <ProgressBar Margin="0,14,0,0"
+                             Height="6"
+                             Minimum="0"
+                             Maximum="100"
+                             Value="{Binding UpdateProgressPercent, Mode=OneWay}"
+                             IsIndeterminate="{Binding IsUpdateProgressIndeterminate}"
+                             AutomationProperties.Name="更新の進み具合の棒" />
+                <TextBlock Style="{StaticResource Note}"
+                           Margin="0,14,0,0"
+                           Text="終わるまで、操作できません。終わると、アプリが自動で再起動します。" />
+                <Button Content="中止"
+                        HorizontalAlignment="Right"
+                        Padding="16,5"
+                        Margin="0,16,0,0"
+                        Command="{Binding CancelUpdateCommand}"
+                        AutomationProperties.Name="更新を中止する" />
+            </StackPanel>
+        </Border>
+    </Grid>
+    </Grid>
 </Window>

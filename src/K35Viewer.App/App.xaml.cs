@@ -31,7 +31,7 @@ public partial class App : Application
         // 更新の入れ替えのための起動（新しい版の実行ファイルが、アプリのフォルダへ自分を重ねる）。画面は出さない
         if (UpdateApplier.ParseApplyTarget(e.Args) is { } updateTarget)
         {
-            RunUpdateApply(e.Args, updateTarget);
+            await RunUpdateApplyAsync(e.Args, updateTarget);
             return;
         }
 
@@ -169,21 +169,44 @@ builder.Services.AddSingleton<IThumbnailCacheMaintenance>(sp => sp.GetRequiredSe
     }
 
     /// <summary>
-    /// 更新の入れ替えを行う（新しい版の実行ファイルとして、展開したフォルダから動いている）。古いアプリの終了を待ち、
-    /// アプリのフォルダへ自分の一式を重ね、結果を書いて、アプリのフォルダの実行ファイルを起動する。成功なら新しい版、失敗なら元の版が起動する。
+    /// 更新の入れ替えを行う（新しい版の実行ファイルとして、展開したフォルダから動いている）。
+    /// 「更新しています」のウィンドウを出してから、古いアプリの終了を待ち、アプリのフォルダへ自分の一式を重ね、結果を書いて、
+    /// アプリのフォルダの実行ファイルを起動する。成功なら新しい版、失敗なら元の版が起動する。
+    /// 起動した画面が出るまで、ウィンドウを残す（古いアプリが消えてから、新しい画面が出るまでの間、何も表示されない時間をなくす）。
     /// </summary>
-    private void RunUpdateApply(string[] args, string targetDirectory)
+    private async Task RunUpdateApplyAsync(string[] args, string targetDirectory)
     {
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
-        RestartArguments.WaitForPreviousProcess(args);
         var paths = AppPaths.CreateDefault();
         paths.EnsureDirectories();
-        var result = UpdateApplier.Apply(
-            AppContext.BaseDirectory, targetDirectory, paths.UpdateRollbackDirectory, AppInfo.VersionText);
-        UpdateApplier.WriteResult(paths, result);
+
+        // 外観は、設定のファイルに合わせる（読めなければ、既定のまま）
         try
         {
-            using var started = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+            ThemeManager.Apply(new SettingsStore(paths.SettingsFile).Load().Settings.Theme);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 既定の外観で、表示する
+        }
+
+        var window = new UpdateApplyWindow(AppInfo.VersionText);
+        window.Show();
+
+        // ファイルの入れ替えは、別のスレッドで行う（ウィンドウを固めない）
+        var result = await Task.Run(() =>
+        {
+            RestartArguments.WaitForPreviousProcess(args);
+            var applied = UpdateApplier.Apply(
+                AppContext.BaseDirectory, targetDirectory, paths.UpdateRollbackDirectory, AppInfo.VersionText);
+            UpdateApplier.WriteResult(paths, applied);
+            return applied;
+        });
+
+        System.Diagnostics.Process? started = null;
+        try
+        {
+            started = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
                 Path.Combine(targetDirectory, UpdateService.ExecutableName))
             {
                 WorkingDirectory = targetDirectory,
@@ -195,9 +218,41 @@ builder.Services.AddSingleton<IThumbnailCacheMaintenance>(sp => sp.GetRequiredSe
             // 起動できなかった場合は、利用者が、アプリのフォルダの実行ファイルを起動する
         }
 
+        if (started is not null)
+        {
+            using (started)
+            {
+                await Task.Run(() => WaitForMainWindow(started, TimeSpan.FromSeconds(20)));
+            }
+        }
+
+        window.AllowClose();
+        window.Close();
         Shutdown(result.Succeeded ? 0 : 1);
     }
 
+    /// <summary>起動したプロセスの画面（メインウィンドウ）が出るまで待つ。終了した、または時間が過ぎたら、待つのをやめる。</summary>
+    private static void WaitForMainWindow(System.Diagnostics.Process process, TimeSpan timeout)
+    {
+        var deadline = DateTime.UtcNow + timeout;
+        try
+        {
+            while (!process.HasExited && DateTime.UtcNow < deadline)
+            {
+                process.Refresh();
+                if (process.MainWindowHandle != IntPtr.Zero)
+                {
+                    return;
+                }
+
+                Thread.Sleep(200);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+            // プロセスがすでにない
+        }
+    }
     private void ReportUpdateResult(UpdateResult? result)
     {
         if (result is null)
