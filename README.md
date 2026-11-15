@@ -3,7 +3,7 @@
 画像アーカイブ（ZIP / CBZ）を、ライブラリとして管理しながら閲覧する Windows 用のビューアです。
 複数のフォルダにあるアーカイブを横断して探し、開いて見ながら、不要な画像をその場で削除できます。
 
-現在の版は v0.2.0（試用版）です。最初の版（v0.1.0）に、設定画面、バックアップと復元、アプリの更新を加えました。
+現在の版は v0.2.1（試用版）です。v0.2.0 で、設定画面、バックアップと復元、アプリの更新を加え、v0.2.1 で、ビューアから一覧に戻らずに、前後のアーカイブへ移れるようにしました。
 
 > **English summary**: 35Viewer is a free, open-source Windows desktop application (WPF / .NET 10) for browsing and managing
 > image archives (ZIP / CBZ). It indexes archives across multiple folders, shows them as a searchable library with thumbnails,
@@ -43,6 +43,7 @@ There is no installer. To uninstall, delete the extracted folder. To also remove
 - **ビューア**
   - 1枚表示（拡大・縮小、ウィンドウに合わせる、原寸、全画面）と一覧表示（表示方式は、次の起動でも覚えている）
   - 前回見ていた画像から開く
+  - ↑ / ↓ で、一覧に戻らずに、ライブラリの一覧の並びでの前後のアーカイブへ移る（v0.2.1）
 - **画像の削除**
   - 不要な画像を「削除予約」し、アーカイブを離れるときに、まとめて ZIP から取り除く
   - 更新前の ZIP は Windows のごみ箱へ退避する。新しい ZIP を作って確かめてから置き換えるため、途中で失敗しても元の ZIP は壊れない
