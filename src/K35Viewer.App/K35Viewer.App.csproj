@@ -14,7 +14,7 @@
     <!-- P/Invoke（LibraryImport）の生成コードに必要 -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <!-- 実行ファイルのプロパティに表示する情報。Version は、リリースのタグ（v0.1.0 など）と合わせる -->
-    <Version>0.2.1</Version>
+    <Version>0.2.2</Version>
     <Product>35Viewer</Product>
     <Company>k355566687</Company>
     <Copyright>Copyright (c) 2026 k355566687</Copyright>
