@@ -1,4 +1,4 @@
-using System.Windows;
+﻿using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.Input;
@@ -18,6 +18,7 @@ public partial class LibraryView : UserControl
         FolderTree.AddHandler(
             MouseRightButtonDownEvent, new MouseButtonEventHandler(OnTreeMouseRightButtonDown), handledEventsToo: true);
         DataContextChanged += OnDataContextChanged;
+        IsVisibleChanged += OnIsVisibleChanged;
         Loaded += async (_, _) =>
         {
             ApplyCompactRows();
@@ -55,6 +56,49 @@ public partial class LibraryView : UserControl
     }
 
     private bool _compactRowsApplied;
+
+    // ビューアから戻ったとき（前後のアーカイブへ移っていた場合を含む）に、選ばれているアーカイブを画面に表示する。
+    // プログラムから選んだだけでは、一覧はスクロールしないため（キー操作のときだけ、スクロールしている）
+    private void OnIsVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (e.NewValue is true)
+        {
+            ScrollToSelected();
+        }
+    }
+
+    /// <summary>選ばれているアーカイブ（なければ何もしない）を、表示中の一覧（詳細 / サムネイル）の画面内へスクロールする。</summary>
+    internal void ScrollToSelected()
+    {
+        if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished)
+        {
+            return;
+        }
+
+        // 表示の準備（レイアウト）が整ってから行う
+        _ = Dispatcher.BeginInvoke(
+            () =>
+            {
+                if (ViewModel is not { SelectedArchive: { } selected } viewModel)
+                {
+                    return;
+                }
+
+                if (viewModel.IsThumbnailView)
+                {
+                    var row = viewModel.GetSelectedRowIndex();
+                    if (row >= 0 && row < viewModel.ThumbnailRows.Count)
+                    {
+                        ThumbnailList.ScrollIntoView(viewModel.ThumbnailRows[row]);
+                    }
+                }
+                else
+                {
+                    DetailList.ScrollIntoView(selected);
+                }
+            },
+            System.Windows.Threading.DispatcherPriority.Loaded);
+    }
 
     private LibraryViewModel? ViewModel => DataContext as LibraryViewModel;
 

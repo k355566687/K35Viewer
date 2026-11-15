@@ -596,6 +596,26 @@ public sealed partial class LibraryViewModel(
         SelectIndex(current < 0 ? (delta > 0 ? 0 : Archives.Count - 1) : Math.Clamp(current + delta, 0, Archives.Count - 1));
     }
 
+    /// <summary>選ばれているアーカイブがある、サムネイル表示の行の番号（0始まり）。選ばれていない、または一覧にないときは -1。</summary>
+    public int GetSelectedRowIndex()
+    {
+        if (SelectedArchive is not { } selected)
+        {
+            return -1;
+        }
+
+        var list = Archives;
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i].Id == selected.Id)
+            {
+                return i / Math.Max(1, ColumnCount);
+            }
+        }
+
+        return -1;
+    }
+
     private void SelectIndex(int index)
     {
         SelectedArchive = Archives[index];

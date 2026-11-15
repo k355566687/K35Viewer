@@ -1,4 +1,4 @@
-using System.Diagnostics;
+﻿using System.Diagnostics;
 using System.Windows;
 using System.Windows.Automation;
 using System.Windows.Controls;
@@ -149,4 +149,68 @@ public class LibraryViewVirtualizationTests
         Assert.InRange(realizedCells, 1, 400);
         Assert.True(showMs < 30_000, $"表示が遅すぎます: {showMs}ms");
     }
+
+    /// <summary>
+    /// ビューアで前後のアーカイブへ移ると、ライブラリ側の選択は、プログラムから変わる（一覧は、非表示のまま）。
+    /// ビューアから戻って画面が表示されたとき、選ばれているアーカイブが、画面内にスクロールされていること。
+    /// </summary>
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task ビューアから戻って画面が表示されたとき_選ばれているアーカイブまでスクロールする(bool thumbnailView)
+    {
+        using var ctx = new LibraryTestContext();
+        await ctx.InitializeAsync();
+        using var viewModel = new LibraryViewModel(
+            ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, new NoDialogs(), ctx.Archives, NullLogger<LibraryViewModel>.Instance);
+        await viewModel.InitializeAsync();
+        var items = Enumerable.Range(0, 10_000)
+            .Select(i => new ArchiveListItem(new ArchiveSummary(
+                i + 1, $"書籍_{i:D5}.zip", @"D:\Archive\Books", 1_000_000 + i, 1_700_000_000 + (i * 60), 20, "READY"), ctx.ImageLoader))
+            .ToList();
+        viewModel.Archives = items;
+        viewModel.TotalCount = items.Count;
+        viewModel.EmptyMessage = string.Empty;
+        viewModel.IsThumbnailView = thumbnailView;
+        var target = items[7_000];
+
+        var realizedBefore = true;
+        var realizedAfter = false;
+        RunOnStaThread(() =>
+        {
+            var view = new LibraryView { DataContext = viewModel, Visibility = Visibility.Collapsed };
+            var window = WpfTestHelper.WithAppTheme(new Window { Width = 1280, Height = 800, Content = view });
+            window.Show();
+            window.UpdateLayout();
+
+            // ビューアを表示している間（ライブラリは非表示）に、移ったアーカイブがプログラムから選ばれる
+            viewModel.SelectedArchive = target;
+            // 非表示の間は、画面の木（ビジュアルツリー）に載っていないため、名前で直接取る
+            var list = (ItemsControl)view.FindName(thumbnailView ? "ThumbnailList" : "DetailList");
+
+            bool IsRealized()
+            {
+                if (!thumbnailView)
+                {
+                    return list.ItemContainerGenerator.ContainerFromItem(target) is not null;
+                }
+
+                var row = viewModel.GetSelectedRowIndex();
+                return row >= 0 && list.ItemContainerGenerator.ContainerFromItem(viewModel.ThumbnailRows[row]) is not null;
+            }
+
+            realizedBefore = IsRealized();
+
+            // ビューアから戻って、ライブラリが表示される
+            view.Visibility = Visibility.Visible;
+            window.UpdateLayout();
+            WpfTestHelper.PumpUntil(IsRealized);
+            realizedAfter = IsRealized();
+            window.Close();
+        });
+
+        Assert.False(realizedBefore, "非表示のうちは、遠くの行は生成されていないはずです（テストの前提）");
+        Assert.True(realizedAfter, "表示されたあと、選ばれているアーカイブまでスクロールされていません");
+    }
+
 }
