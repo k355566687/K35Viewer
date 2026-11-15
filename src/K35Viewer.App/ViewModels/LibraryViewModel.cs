@@ -306,6 +306,49 @@ public sealed partial class LibraryViewModel(
         }
     }
 
+    /// <summary>
+    /// 今の一覧の並び（選んでいるフォルダ、検索、並べ替えが反映されたもの）で、<paramref name="archiveId"/> の前後のアーカイブを探す。
+    /// ビューアで開いたまま、次のアーカイブへ移るために使う。開けないことが分かっているもの（壊れている、画像がない、暗号化）は飛ばす。
+    /// 見つからなかった場合は null を返し、<paramref name="message"/> に、利用者へ知らせる理由を入れる。
+    /// 端で止まる（ぐるっと回らず、別のフォルダへも飛ばない）。「すべて」を選んでいるときは、全フォルダの1本の並びを進む。
+    /// </summary>
+    /// <param name="archiveId">今開いているアーカイブ。</param>
+    /// <param name="direction">+1 が次、-1 が前。</param>
+    public ArchiveListItem? FindNeighbor(long archiveId, int direction, out string message)
+    {
+        var list = Archives;
+        var index = -1;
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (list[i].Id == archiveId)
+            {
+                index = i;
+                break;
+            }
+        }
+
+        if (index < 0)
+        {
+            message = "今のアーカイブが、ライブラリの一覧に見つかりません。一覧に戻って、開き直してください";
+            return null;
+        }
+
+        var step = direction >= 0 ? 1 : -1;
+        for (var i = index + step; i >= 0 && i < list.Count; i += step)
+        {
+            if (!list[i].IsKnownUnopenable)
+            {
+                message = string.Empty;
+                return list[i];
+            }
+        }
+
+        message = step > 0
+            ? "これより後に、開けるアーカイブはありません"
+            : "これより前に、開けるアーカイブはありません";
+        return null;
+    }
+
     [RelayCommand(CanExecute = nameof(CanRescan))]
     private Task RescanAsync() => RunScanAsync(ct => scan.ScanAllAsync(ScanType.Manual, ct));
 

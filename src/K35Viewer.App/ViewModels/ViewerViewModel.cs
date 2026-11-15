@@ -44,10 +44,10 @@ public sealed partial class ViewerViewModel(
     public const int PageStepRows = 3;
 
     private const string SingleViewHelp =
-        "←/→ 前後の頁　+/− 拡大・縮小　0 フィット　1 原寸　Delete 削除予約　G 一覧表示　F11 全画面　Esc ライブラリへ戻る";
+        "←/→ 前後の頁　↑/↓ 前後のアーカイブ　+/− 拡大・縮小　0 フィット　1 原寸　Delete 削除予約　G 一覧表示　F11 全画面　Esc ライブラリへ戻る";
 
     private const string ListViewHelp =
-        "矢印キー 移動　Shift/Ctrl+クリック 複数選択　Space 選択の切替　Ctrl+A 全選択　Delete 削除予約/解除　Enter 開く　G 1枚表示　Esc ライブラリへ戻る";
+        "矢印キー 移動　Shift/Ctrl+クリック 複数選択　Space 選択の切替　Ctrl+A 全選択　Delete 削除予約/解除　Enter 開く　Ctrl+↑/↓ 前後のアーカイブ　G 1枚表示　Esc ライブラリへ戻る";
 
     /// <summary>拡大・縮小の段階。</summary>
     private static readonly double[] ZoomSteps =
@@ -75,6 +75,12 @@ public sealed partial class ViewerViewModel(
 
     /// <summary>ライブラリへ戻る操作が行われた（Esc、戻るボタン）。画面の切り替えは呼び出し側が行う。</summary>
     public event EventHandler? CloseRequested;
+
+    /// <summary>
+    /// 前後のアーカイブへ移る操作が行われた（↑ / ↓）。値は向き（+1 が次、-1 が前）。
+    /// ライブラリの一覧の並びでの前後を、呼び出し側（<see cref="MainViewModel"/>）が決めて、開く。
+    /// </summary>
+    public event EventHandler<int>? NavigateArchiveRequested;
 
     /// <summary>
     /// 一覧表示で、指定した行（0始まり）を画面に表示してほしい。現在位置が動いたとき、または一覧表示に切り替えたときに発行する。
@@ -359,6 +365,7 @@ public sealed partial class ViewerViewModel(
     /// キー操作を処理する。処理した場合は true（呼び出し側は、キーを他へ渡さない）。
     /// 共通: G で表示方式の切替、F11 で全画面、Esc でライブラリへ戻る。
     /// 1枚表示: ←/→・PageUp/PageDown・Space で前後、Home/End で先頭/末尾、+/− で拡大・縮小、0 でフィット、1 で原寸。
+    /// ↑/↓（一覧表示では Ctrl+↑/↓）で、ライブラリの一覧の並びでの前後のアーカイブへ移る（<see cref="NavigateArchiveRequested"/>）。
     /// 一覧表示: 矢印キーで移動（Shift で範囲選択）、Space で選択の切替、Ctrl+A で全選択、Enter で1枚表示。
     /// </summary>
     public bool HandleKey(Key key, ModifierKeys modifiers)
@@ -381,6 +388,10 @@ public sealed partial class ViewerViewModel(
                 return true;
             case Key.Delete:
                 ToggleDelete();
+                return true;
+            // 前後のアーカイブへ。一覧表示では、↑ / ↓ が画像の選択に使われているため、Ctrl を押したときだけにする
+            case Key.Up or Key.Down when !modifiers.HasFlag(ModifierKeys.Alt) && (!IsListView || modifiers.HasFlag(ModifierKeys.Control)):
+                NavigateArchiveRequested?.Invoke(this, key == Key.Down ? 1 : -1);
                 return true;
             default:
                 return IsListView ? HandleListKey(key, modifiers) : HandleSingleKey(key, modifiers);

@@ -111,6 +111,12 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
         _ => _summary.ImageCount is { } count ? count.ToString("N0", CultureInfo.CurrentCulture) : "－",
     };
 
+    /// <summary>
+    /// 開けないことが、一覧の状態から分かっているか（壊れている、画像がない、暗号化されている）。
+    /// 前後のアーカイブへ移るとき、これらは飛ばす。ファイルがないなどは、開いてみないと分からない。
+    /// </summary>
+    public bool IsKnownUnopenable => _summary.AnalysisStatus is "BROKEN" or "EMPTY" or "UNSUPPORTED";
+
     public string FileSizeText => ByteSizeFormatter.Format(_summary.FileSize);
 
     public string LastWriteTimeText => UnixTime.FromUnixSeconds(_summary.LastWriteTime)

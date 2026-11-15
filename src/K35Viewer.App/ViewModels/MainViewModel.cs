@@ -60,6 +60,7 @@ public sealed partial class MainViewModel : ObservableObject
 
         Library.OpenRequested += OnOpenRequested;
         Viewer.CloseRequested += OnCloseRequested;
+        Viewer.NavigateArchiveRequested += OnNavigateArchiveRequested;
         Viewer.PropertyChanged += OnViewerPropertyChanged;
     }
 
@@ -301,6 +302,73 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// ビューアで開いたまま、ライブラリの一覧の並びでの前後のアーカイブへ移る（↑ / ↓）。
+    /// 削除予約が残っていれば、ライブラリへ戻るときと同じ確認（DLG-01）を行う。キャンセルなら、今のアーカイブに留まる。
+    /// 移り先は、確認や更新で一覧が並べ替わっても、最初に決めたものを開く。
+    /// 次のアーカイブを開けなかった場合（理由は通知済み）は、ライブラリへ戻る（今のアーカイブは、すでに閉じているため）。
+    /// </summary>
+    private async void OnNavigateArchiveRequested(object? sender, int direction)
+    {
+        if (_isTransitioning || !IsViewerVisible || IsUpdating || Viewer.Session is not { } session)
+        {
+            return;
+        }
+
+        var target = Library.FindNeighbor(session.ArchiveId, direction, out var reason);
+        if (target is null)
+        {
+            _notifications.ShowInfo(reason);
+            return;
+        }
+
+        var decision = DecideLeave();
+        if (decision == LeaveDecision.Stay)
+        {
+            return;
+        }
+
+        _isTransitioning = true;
+        try
+        {
+            var updated = false;
+            if (decision == LeaveDecision.Update)
+            {
+                // 失敗・キャンセルなら、今のアーカイブに留まる（元のアーカイブと削除予約を保持している）
+                if (!await UpdateArchiveAsync())
+                {
+                    return;
+                }
+
+                updated = true;
+            }
+
+            await Viewer.CloseAsync();
+            if (updated)
+            {
+                // 内容が変わったアーカイブの表示と、サムネイルを更新する
+                await Library.OnArchiveChangedAsync();
+            }
+
+            // ライブラリへ戻ったときに、今見ていたアーカイブの位置にいるよう、選んでおく
+            Library.SelectedArchive = Library.Archives.FirstOrDefault(a => a.Id == target.Id) ?? Library.SelectedArchive;
+            if (!await Viewer.OpenAsync(target.Id))
+            {
+                IsViewerVisible = false;
+            }
+        }
+        catch (Exception ex)
+        {
+            LogNavigateFailed(_logger, ex);
+            _notifications.ShowError("次のアーカイブを開けませんでした");
+            IsViewerVisible = false;
+        }
+        finally
+        {
+            _isTransitioning = false;
+        }
+    }
+
     private void OnViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
         if (e.PropertyName == nameof(ViewerViewModel.ArchiveName))
@@ -311,6 +379,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     [LoggerMessage(Level = LogLevel.Error, Message = "ビューアを開けませんでした。ArchiveId={Id}")]
     private static partial void LogOpenFailed(ILogger logger, Exception exception, long id);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "前後のアーカイブへ移る処理に失敗しました。")]
+    private static partial void LogNavigateFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "ビューアを閉じる処理に失敗しました。")]
     private static partial void LogCloseFailed(ILogger logger, Exception exception);
