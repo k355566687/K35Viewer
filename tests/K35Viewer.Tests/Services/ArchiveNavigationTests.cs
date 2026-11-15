@@ -34,11 +34,13 @@ public class ArchiveNavigationTests
     private static async Task OpenAsync(MainTestHarness harness, string fileName)
     {
         harness.Library.OpenArchiveCommand.Execute(harness.Library.Archives.Single(a => a.FileName == fileName));
-        await WaitUntilAsync(() => harness.Main.IsViewerVisible && harness.Viewer.IsOpen);
+        await WaitUntilAsync(() => harness.Main.IsViewerVisible && harness.Viewer.IsOpen && !harness.Main.IsTransitioning);
     }
 
+    // 名前が変わっても、最初の画像を読み込み終わるまでは、切り替えの途中（この間の ↑ / ↓ は無視される）。
+    // 続けてキーを押すテストは、切り替えが終わるまで待つ
     private static Task WaitForViewerAsync(MainTestHarness harness, string fileName) =>
-        WaitUntilAsync(() => harness.Viewer.IsOpen && harness.Viewer.ArchiveName == fileName);
+        WaitUntilAsync(() => harness.Viewer.IsOpen && harness.Viewer.ArchiveName == fileName && !harness.Main.IsTransitioning);
 
     [Fact]
     public async Task 下キーで次のアーカイブ_上キーで前のアーカイブを開く_ライブラリへは戻らない()

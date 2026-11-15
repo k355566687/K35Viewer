@@ -96,6 +96,12 @@ public sealed partial class MainViewModel : ObservableObject
 
     public bool IsLibraryVisible => !IsViewerVisible;
 
+    /// <summary>
+    /// アーカイブを開く・閉じる・前後のアーカイブへ移る処理の途中か。この間の、次の開く・移る操作は、無視する。
+    /// （テストで、切り替えが終わるのを待つために使う）
+    /// </summary>
+    internal bool IsTransitioning => _isTransitioning;
+
     /// <summary>ウィンドウのタイトル。ビューアを開いている間は、アーカイブ名を含める。</summary>
     public string Title => IsViewerVisible && Viewer.ArchiveName.Length > 0
         ? $"{Viewer.ArchiveName} - {ProductName}"
