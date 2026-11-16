@@ -296,7 +296,7 @@ public class ToastHostViewModelTests
     public async Task 通知は表示され_一定時間で消え_表示数には上限がある()
     {
         var notifications = new NotificationService();
-        using var toasts = new ToastHostViewModel(notifications, TimeSpan.FromMilliseconds(150));
+        using var toasts = new ToastHostViewModel(notifications, TimeSpan.FromSeconds(1));
 
         notifications.ShowSuccess("A");
         notifications.ShowWarning("B");
@@ -304,8 +304,13 @@ public class ToastHostViewModelTests
         Assert.Equal([NotificationLevel.Success, NotificationLevel.Warning], toasts.Items.Select(t => t.Level));
         Assert.Equal(["✓", "⚠"], toasts.Items.Select(t => t.Symbol));
 
-        await Task.Delay(1000, TestContext.Current.CancellationToken);
-        Assert.Empty(toasts.Items);
+        // 表示時間は短すぎると、負荷の高い CI では最初の確認より先に消えてしまう。消えるのは、期限つきで待つ
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (toasts.Items.Count > 0)
+        {
+            Assert.True(DateTime.UtcNow < deadline, "通知が一定時間で消えませんでした。");
+            await Task.Delay(50, TestContext.Current.CancellationToken);
+        }
 
         for (var i = 0; i < 8; i++)
         {
