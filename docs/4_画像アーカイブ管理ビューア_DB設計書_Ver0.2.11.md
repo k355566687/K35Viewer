@@ -1,12 +1,15 @@
 # 画像アーカイブ管理ビューア DB設計書
 
-**文書バージョン:** Ver.0.2.10  
+**文書バージョン:** Ver.0.2.11  
 **作成日:** 2026-11-06  
 **更新日:** 2026-11-16  
 **対象:** MVP  
 **DBMS:** SQLite
 
 ## 1. 修正内容
+### Ver.0.2.11（RAR / 7z の ZIP への変換。GitHub の Issue #20）
+- 操作履歴の種別に `ARCHIVE_CONVERT` を追加した（`operation_type` にはCHECKがないため、マイグレーションは要らない）。6.5を更新
+- 変換のDB反映（11.10）を追加した。`schema_version` は2のまま
 ### Ver.0.2.10（RAR / 7z の閲覧に伴う変更。GitHub の Issue #3）
 - `archives.extension` に、`rar`、`cbr`、`7z`、`cb7` を許した。6.3を更新
 - 初期DDL（8章）は変更せず、2番目のマイグレーション（`0002_archive_formats.sql`）で表を作り直す。`schema_version` は2になる。13章を追加
@@ -298,6 +301,7 @@ scan_runs
 | `IMAGE_DELETE` | ZIP / CBZ内の画像削除。内部ではZIP再構築を行う |
 | `ARCHIVE_RENAME` | アーカイブ名変更 |
 | `ARCHIVE_MOVE` | アーカイブ移動 |
+| `ARCHIVE_CONVERT` | RAR / 7z を ZIP に変換（11.10）。`old_path` は元のファイル、`new_path` は変換した ZIP。元のファイルを残した場合（ごみ箱を使えない保存先など）は、通知では警告とし、履歴は成功として記録する |
 | `ARCHIVE_DELETE` | アーカイブをごみ箱へ移動。ごみ箱が使えず、ユーザーが承認して完全削除した場合も同じ種別とし、`details_json` に完全削除であることを記録する |
 | `LIBRARY_FOLDER_ADD` | 管理フォルダの追加（親フォルダ追加による子の統合を含む） |
 | `LIBRARY_FOLDER_REMOVE` | 管理フォルダを管理対象から外す |
@@ -726,6 +730,18 @@ ZIPを開くのは、この処理と、ビューアで閲覧するときだけ�
 
 開発機での測定値（参考）: 生成済みの2,000件の起動時の確認は約84ms（10,000件では約0.4秒と推定）。生成の速度は、1600×1200のJPEG3枚入りのアーカイブで約67件/秒で、10,000件では約2.5分と見込まれる。
 
+### 11.10 ZIPへの変換（GitHub の Issue #20）
+RAR / 7z を ZIP に変換したとき、同じアーカイブ（Archive ID）の記録を、変換した ZIP のものにする。中身の画像（名前と内容）は変わらないため、閲覧位置（`last_view_entry`、`last_view_index`）と、解析の結果（`image_count`、`first_image_entry`、`analysis_status`）は、そのまま残す。
+
+1. 変換した ZIP を、確かめてから、同じフォルダに置く（元のファイルは、まだ残っている）
+2. 1つのトランザクションで、次を行う
+   - `archives` の `file_name`、`extension`、`file_size`、`last_write_time` を、変換した ZIP の値にする（`availability_status` は `AVAILABLE`）
+   - `thumbnail_cache` が、変換の前のファイルから作った最新のもの（`status = 'READY'` で、`source_archive_size` と `source_last_write_time` が、変換の前の値と一致する）なら、その2つを、変換した ZIP の値に付け替える。作り直しの対象（11.9）にしないため
+   - `ARCHIVE_CONVERT` の履歴を追加する
+3. 元のファイルを、ごみ箱へ移す
+
+- 2 が失敗したら、置いた ZIP を消して、元の状態に戻す（元のファイルは、まだ変えていない）
+- 元のファイルを残した場合（ごみ箱を使えない、移せなかった）は、DBには、変換した ZIP だけが残る。元のファイルは、次のスキャンで、新しいアーカイブ（新しいID）として登録される
 ## 12. レビュー事項
 
 1. （暫定確定）不在ファイルは物理削除せず、`MISSING` として保持する。一覧・件数には含めない。保持期間の上限や、ユーザーによる削除操作は未定
