@@ -7,6 +7,9 @@ public enum OperationType
     ArchiveRename,
     ArchiveMove,
     ArchiveDelete,
+
+    /// <summary>RAR / 7z を ZIP に変換した（GitHub の Issue #20）。</summary>
+    ArchiveConvert,
     LibraryFolderAdd,
     LibraryFolderRemove,
     ScanInitial,
@@ -46,6 +49,7 @@ public static class OperationResultExtensions
         OperationType.ArchiveRename => "ARCHIVE_RENAME",
         OperationType.ArchiveMove => "ARCHIVE_MOVE",
         OperationType.ArchiveDelete => "ARCHIVE_DELETE",
+        OperationType.ArchiveConvert => "ARCHIVE_CONVERT",
         OperationType.LibraryFolderAdd => "LIBRARY_FOLDER_ADD",
         OperationType.LibraryFolderRemove => "LIBRARY_FOLDER_REMOVE",
         OperationType.ScanInitial => "SCAN_INITIAL",

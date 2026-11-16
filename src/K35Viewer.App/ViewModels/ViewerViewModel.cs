@@ -89,6 +89,12 @@ public sealed partial class ViewerViewModel(
     public event EventHandler<string>? DeleteBlocked;
 
     /// <summary>
+    /// 開いている RAR / 7z を ZIP に変換する操作が行われた（ツールバーの「ZIP に変換」）。
+    /// 確認、閉じる、変換、開き直す、の流れは、呼び出し側（<see cref="MainViewModel"/>）が行う。
+    /// </summary>
+    public event EventHandler? ConvertToZipRequested;
+
+    /// <summary>
     /// 一覧表示で、指定した行（0始まり）を画面に表示してほしい。現在位置が動いたとき、または一覧表示に切り替えたときに発行する。
     /// </summary>
     public event EventHandler<int>? ScrollToRowRequested;
@@ -98,6 +104,10 @@ public sealed partial class ViewerViewModel(
 
     [ObservableProperty]
     private string _archiveName = string.Empty;
+
+    /// <summary>開いているアーカイブが、閲覧だけの形式（RAR / 7z）か。ツールバーに「ZIP に変換」を出す。</summary>
+    [ObservableProperty]
+    private bool _isReadOnlyArchive;
 
     /// <summary>「42 / 186」の形式の現在位置。</summary>
     [ObservableProperty]
@@ -262,6 +272,7 @@ public sealed partial class ViewerViewModel(
         Pages = [.. session.Entries.Select((entry, index) => new PageItem(index, entry.FullName, _thumbnailSource))];
         ArchiveName = session.ArchiveName;
         IsListView = false;
+        IsReadOnlyArchive = !session.CanModify;
         IsOpen = true;
         UpdatePosition();
 
@@ -308,6 +319,7 @@ public sealed partial class ViewerViewModel(
         }
 
         IsOpen = false;
+        IsReadOnlyArchive = false;
         IsListView = false;
         Pages = [];
         PageRows = [];
@@ -608,6 +620,16 @@ public sealed partial class ViewerViewModel(
     [RelayCommand]
     private void RequestClose() => CloseRequested?.Invoke(this, EventArgs.Empty);
 
+    /// <summary>開いている RAR / 7z を ZIP に変換するよう求める（ZIP を開いているときは、何もしない）。</summary>
+    [RelayCommand]
+    private void RequestConvertToZip()
+    {
+        if (_session is { CanModify: false })
+        {
+            ConvertToZipRequested?.Invoke(this, EventArgs.Empty);
+        }
+    }
+
     public void Dispose()
     {
         // 開いたまま終了する場合に備えて、位置を保存してから後片付けをする（保存の中で予約をキャンセルする）
@@ -874,7 +896,7 @@ public sealed partial class ViewerViewModel(
         {
             DeleteBlocked?.Invoke(
                 this,
-                "このアーカイブ（RAR / 7z）は、閲覧だけで、画像を削除できません。削除するには、ZIP に変換してください（変換は、今後対応予定です）");
+                "このアーカイブ（RAR / 7z）は、閲覧だけで、画像を削除できません。削除するには、ツールバーの「ZIP に変換」で、ZIP に変換してください");
             return;
         }
 

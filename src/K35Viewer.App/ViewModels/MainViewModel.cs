@@ -62,6 +62,7 @@ public sealed partial class MainViewModel : ObservableObject
         Viewer.CloseRequested += OnCloseRequested;
         Viewer.NavigateArchiveRequested += OnNavigateArchiveRequested;
         Viewer.DeleteBlocked += (_, message) => _notifications.ShowInfo(message);
+        Viewer.ConvertToZipRequested += OnConvertToZipRequested;
         Viewer.PropertyChanged += OnViewerPropertyChanged;
     }
 
@@ -390,9 +391,95 @@ public sealed partial class MainViewModel : ObservableObject
         if (Viewer.Session is { IsSolid: true } session)
         {
             _notifications.ShowInfo(
-                $"「{session.ArchiveName}」は、ソリッド形式です。後ろのページへ移ると、時間がかかることがあります。ZIP に変換すると速くなります（変換は、今後対応予定です）");
+                $"「{session.ArchiveName}」は、ソリッド形式です。後ろのページへ移ると、時間がかかることがあります。ツールバーの「ZIP に変換」で ZIP に変換すると、速くなります");
         }
     }
+
+    /// <summary>
+    /// ビューアで開いている RAR / 7z を ZIP に変換する（GitHub の Issue #20）。確認のうえ、閉じて（閲覧位置を保存し、ファイルを離す）、
+    /// 変換し、同じアーカイブを開き直す（Archive ID は変わらないため、同じ位置から続けて読める）。
+    /// 変換の間は、更新と同じ表示（<see cref="IsUpdating"/>）を出し、ZIP の作成と確認の間はキャンセルできる。
+    /// 変換できなかった場合も、元のアーカイブを開き直す。開き直せなかった場合は、ライブラリへ戻る。
+    /// </summary>
+    private async void OnConvertToZipRequested(object? sender, EventArgs e)
+    {
+        if (_isTransitioning || !IsViewerVisible || IsUpdating || Viewer.Session is not { CanModify: false } session)
+        {
+            return;
+        }
+
+        var folder = Path.GetDirectoryName(session.ArchivePath) ?? string.Empty;
+        var fileName = Path.GetFileName(session.ArchivePath);
+        if (_archives.PlanZipConversion(folder, fileName, out var error) is not { } plan)
+        {
+            _notifications.ShowWarning(error!);
+            return;
+        }
+
+        if (!_dialogs.ConfirmConvertToZip(fileName, plan.NewFileName, plan.KeepOriginalReason))
+        {
+            return;
+        }
+
+        var archiveId = session.ArchiveId;
+        _isTransitioning = true;
+        using var cts = new CancellationTokenSource();
+        _updateCts = cts;
+        IsUpdating = true;
+        CanCancelUpdate = true;
+        UpdateStatusText = DescribeConvertPhase(ArchiveUpdatePhase.Preparing);
+        try
+        {
+            await Viewer.CloseAsync();
+            var progress = new ContextProgress<ArchiveUpdatePhase>(UiContext, OnConvertPhase);
+            var result = await _archives.ConvertToZipAsync(archiveId, progress, cts.Token);
+            var converted = result.Status is K35Viewer.Domain.OperationStatus.Success or K35Viewer.Domain.OperationStatus.Partial;
+            if (converted)
+            {
+                // 名前と形式が変わったアーカイブの表示を更新する（残した元のファイルは、次のスキャンで登録される）
+                await Library.OnArchiveChangedAsync();
+            }
+
+            Library.SelectedArchive = Library.Archives.FirstOrDefault(a => a.Id == archiveId) ?? Library.SelectedArchive;
+            if (!await Viewer.OpenAsync(archiveId))
+            {
+                IsViewerVisible = false;
+            }
+            else if (!converted)
+            {
+                AnnounceIfSolid();
+            }
+        }
+        catch (Exception ex)
+        {
+            LogConvertFailed(_logger, ex, archiveId);
+            _notifications.ShowError("ZIP に変換できませんでした");
+            IsViewerVisible = Viewer.IsOpen;
+        }
+        finally
+        {
+            IsUpdating = false;
+            CanCancelUpdate = false;
+            UpdateStatusText = string.Empty;
+            _updateCts = null;
+            _isTransitioning = false;
+        }
+    }
+
+    private void OnConvertPhase(ArchiveUpdatePhase phase)
+    {
+        UpdateStatusText = DescribeConvertPhase(phase);
+        CanCancelUpdate = phase is ArchiveUpdatePhase.Preparing or ArchiveUpdatePhase.Rebuilding or ArchiveUpdatePhase.Verifying;
+    }
+
+    private static string DescribeConvertPhase(ArchiveUpdatePhase phase) => phase switch
+    {
+        ArchiveUpdatePhase.Preparing => "変換できるか確認しています…",
+        ArchiveUpdatePhase.Rebuilding => "ZIP を作成しています…",
+        ArchiveUpdatePhase.Verifying => "作成した ZIP を確認しています…",
+        ArchiveUpdatePhase.Replacing => "作成した ZIP を置いています…（この処理は中止できません）",
+        _ => "記録を更新して、元のアーカイブをごみ箱へ移動しています…（この処理は中止できません）",
+    };
 
     private void OnViewerPropertyChanged(object? sender, PropertyChangedEventArgs e)
     {
@@ -410,6 +497,9 @@ public sealed partial class MainViewModel : ObservableObject
 
     [LoggerMessage(Level = LogLevel.Error, Message = "ビューアを閉じる処理に失敗しました。")]
     private static partial void LogCloseFailed(ILogger logger, Exception exception);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "ZIP への変換で想定外のエラーが起きました。ArchiveId={Id}")]
+    private static partial void LogConvertFailed(ILogger logger, Exception exception, long id);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "アーカイブの更新で想定外のエラーが起きました。")]
     private static partial void LogUpdateFailed(ILogger logger, Exception exception);

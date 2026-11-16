@@ -196,6 +196,8 @@ public class SettingsViewModelTests
 
         public bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount) => false;
 
+        public bool ConfirmConvertToZip(string fileName, string newFileName, string? keepOriginalReason) => false;
+
         public void ShowSettings()
         {
         }

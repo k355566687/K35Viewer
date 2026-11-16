@@ -51,6 +51,12 @@ public interface IDialogService
     /// <summary>管理フォルダを管理対象から外すことを確認する（DLG-03）。ファイル自体は削除されない。</summary>
     bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount);
 
+    /// <summary>
+    /// RAR / 7z を ZIP に変換してよいか確認する（GitHub の Issue #20）。<paramref name="keepOriginalReason"/> が null でなければ、
+    /// 元のファイルをごみ箱へ移せないため、残すことを示す。
+    /// </summary>
+    bool ConfirmConvertToZip(string fileName, string newFileName, string? keepOriginalReason);
+
     /// <summary>設定画面（SCR-03）を開く。閉じるまで戻らない（変更は、開いている間にその場で反映される）。</summary>
     void ShowSettings();
 }

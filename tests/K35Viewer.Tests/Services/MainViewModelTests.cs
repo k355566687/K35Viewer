@@ -154,6 +154,16 @@ internal sealed class MainTestHarness : IDisposable
             return RemoveFolderConfirmed;
         }
 
+        public bool ConvertConfirmed { get; set; }
+
+        public List<(string FileName, string NewFileName, string? KeepOriginalReason)> ConvertConfirmations { get; } = [];
+
+        public bool ConfirmConvertToZip(string fileName, string newFileName, string? keepOriginalReason)
+        {
+            ConvertConfirmations.Add((fileName, newFileName, keepOriginalReason));
+            return ConvertConfirmed;
+        }
+
         public void ShowSettings()
         {
         }

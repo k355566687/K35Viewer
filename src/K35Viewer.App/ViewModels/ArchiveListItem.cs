@@ -115,6 +115,11 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
     /// 開けないことが、一覧の状態から分かっているか（壊れている、画像がない、暗号化されている）。
     /// 前後のアーカイブへ移るとき、これらは飛ばす。ファイルがないなどは、開いてみないと分からない。
     /// </summary>
+    /// <summary>
+    /// 名前が RAR / 7z（.rar、.cbr、.7z、.cb7）か。ZIP への変換を出す目安（実際の形式は、変換の前に中身で確かめる）。
+    /// </summary>
+    public bool CanConvertToZip => Path.GetExtension(FileName).ToLowerInvariant() is ".rar" or ".cbr" or ".7z" or ".cb7";
+
     public bool IsKnownUnopenable => _summary.AnalysisStatus is "BROKEN" or "EMPTY" or "UNSUPPORTED";
 
     public string FileSizeText => ByteSizeFormatter.Format(_summary.FileSize);

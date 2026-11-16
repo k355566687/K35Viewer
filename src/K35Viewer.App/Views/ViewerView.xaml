@@ -165,6 +165,14 @@
                         Style="{StaticResource ToolbarButton}"
                         ToolTip="1枚表示と一覧表示の切り替え (G)"
                         AutomationProperties.Name="表示方式の切り替え" />
+                <!-- RAR / 7z は閲覧だけ。編集したいときは ZIP に変換する（GitHub の Issue #20） -->
+                <Button DockPanel.Dock="Right"
+                        Content="ZIP に変換"
+                        Command="{Binding RequestConvertToZipCommand}"
+                        Style="{StaticResource ToolbarButton}"
+                        Visibility="{Binding IsReadOnlyArchive, Converter={StaticResource BoolToVisibility}}"
+                        ToolTip="このアーカイブ（RAR / 7z）を ZIP に変換します。変換すると、画像を削除できるようになり、ソリッド形式でも速く表示できます"
+                        AutomationProperties.Name="ZIP に変換" />
                 <!-- 拡大・縮小は1枚表示のときだけ -->
                 <StackPanel DockPanel.Dock="Right"
                             Orientation="Horizontal"

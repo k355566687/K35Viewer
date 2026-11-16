@@ -98,6 +98,7 @@ public sealed partial class LibraryViewModel(
     [NotifyCanExecuteChangedFor(nameof(MoveSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(ShowSelectedInExplorerCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConvertSelectedToZipCommand))]
     private ArchiveListItem? _selectedArchive;
 
     /// <summary>ツリーで選択中の項目。管理フォルダ自身が選ばれているときだけ、「管理対象から外す」ができる。</summary>
@@ -113,6 +114,7 @@ public sealed partial class LibraryViewModel(
     [NotifyCanExecuteChangedFor(nameof(MoveSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(ShowSelectedInExplorerCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ConvertSelectedToZipCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
     [NotifyPropertyChangedFor(nameof(RemoveFolderToolTip))]
     [NotifyPropertyChangedFor(nameof(ClearBlockedReason))]
@@ -416,6 +418,32 @@ public sealed partial class LibraryViewModel(
         _selectAfterReloadId = item.Id;
         _selectFallbackId = NeighborId(item);
         var result = await archives.DeleteAsync(item.Id, permanent: blocked is not null, _cts.Token);
+        return result.Status is OperationStatus.Success or OperationStatus.Partial;
+    });
+
+    private bool CanConvertSelected() => SelectedArchive is { CanConvertToZip: true } && !IsOperating;
+
+    /// <summary>
+    /// 選択中の RAR / 7z を ZIP に変換する（GitHub の Issue #20）。確認のうえ、変換して、元のファイルをごみ箱へ移す。
+    /// Archive ID は変わらないため、変換したあとも、同じアーカイブが選ばれたままになる。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanConvertSelected))]
+    private Task ConvertSelectedToZipAsync() => RunOperationAsync(async () =>
+    {
+        var item = SelectedArchive!;
+        if (archives.PlanZipConversion(item.Location, item.FileName, out var error) is not { } plan)
+        {
+            archives.NotifyConversionBlocked(error!);
+            return false;
+        }
+
+        if (!dialogs.ConfirmConvertToZip(item.FileName, plan.NewFileName, plan.KeepOriginalReason))
+        {
+            return false;
+        }
+
+        _selectAfterReloadId = item.Id;
+        var result = await archives.ConvertToZipAsync(item.Id, null, _cts.Token);
         return result.Status is OperationStatus.Success or OperationStatus.Partial;
     });
 

@@ -208,6 +208,8 @@ public partial class LibraryView : UserControl
 
     private void OnDeleteMenuClick(object sender, RoutedEventArgs e) => Run(ViewModel?.DeleteSelectedCommand);
 
+    private void OnConvertToZipMenuClick(object sender, RoutedEventArgs e) => Run(ViewModel?.ConvertSelectedToZipCommand);
+
     private void OnShowInExplorerMenuClick(object sender, RoutedEventArgs e) =>
         Run(ViewModel?.ShowSelectedInExplorerCommand);
 

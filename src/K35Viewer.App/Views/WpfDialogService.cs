@@ -86,6 +86,16 @@ public sealed class WpfDialogService(Func<SettingsViewModel> createSettings) : I
                 $"配下の {archiveCount:N0} 件のアーカイブがライブラリから消えます。閲覧位置などの記録も削除されます。ファイル自体は削除されません。"),
             "外す");
 
+    public bool ConfirmConvertToZip(string fileName, string newFileName, string? keepOriginalReason) =>
+        ConfirmDialog.Ask(
+            Owner,
+            "ZIP に変換",
+            $"{fileName} を ZIP（{newFileName}）に変換しますか？",
+            keepOriginalReason is null
+                ? "変換した ZIP を確かめてから、元のファイルはWindowsのごみ箱へ移動します。閲覧位置とサムネイルは引き継ぎます。"
+                : $"元のファイルは、ごみ箱へ移動できないため、残します（{keepOriginalReason}）。閲覧位置とサムネイルは、ZIP に引き継ぎます。",
+            "変換");
+
     public LeaveChoice ConfirmLeaveArchive(string archiveName, int pendingDeleteCount, string? updateUnavailableReason)
     {
         var dialog = new ArchiveChangeDialog(archiveName, pendingDeleteCount, updateUnavailableReason);

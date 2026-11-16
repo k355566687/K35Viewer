@@ -310,6 +310,58 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         await command.ExecuteNonQueryAsync(ct);
     }
 
+    /// <summary>
+    /// RAR / 7z から ZIP への変換を反映する（Archive ID、閲覧位置、解析の結果は維持する。中身の画像は変わらないため）。
+    /// サムネイルは、変換の前のファイルから作った最新のもの（大きさと更新日時が、変換の前の値と一致するもの）だけ、
+    /// 新しいファイルの値に付け替えて、作り直さずに使い続ける。
+    /// </summary>
+    public async Task UpdateAfterConvertAsync(
+        SqliteConnection connection,
+        SqliteTransaction transaction,
+        long id,
+        string fileName,
+        string extension,
+        (long FileSize, long LastWriteTime) before,
+        (long FileSize, long LastWriteTime) after,
+        long now,
+        CancellationToken ct)
+    {
+        await using (var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            UPDATE archives
+               SET file_name = $name, extension = $ext, file_size = $size, last_write_time = $mtime,
+                   availability_status = 'AVAILABLE', updated_at = $now
+             WHERE id = $id
+            """,
+            ("$id", id),
+            ("$name", fileName),
+            ("$ext", extension),
+            ("$size", after.FileSize),
+            ("$mtime", after.LastWriteTime),
+            ("$now", now)))
+        {
+            await command.ExecuteNonQueryAsync(ct);
+        }
+
+        await using var thumbnail = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            UPDATE thumbnail_cache
+               SET source_archive_size = $size, source_last_write_time = $mtime
+             WHERE archive_id = $id AND status = 'READY'
+               AND source_archive_size = $oldSize AND source_last_write_time = $oldMtime
+            """,
+            ("$id", id),
+            ("$size", after.FileSize),
+            ("$mtime", after.LastWriteTime),
+            ("$oldSize", before.FileSize),
+            ("$oldMtime", before.LastWriteTime));
+        await thumbnail.ExecuteNonQueryAsync(ct);
+    }
+
     /// <summary>名前変更を反映する（Archive IDは維持する）。サイズ・更新日時は名前の変更では変わらない。</summary>
     public async Task RenameAsync(
         SqliteConnection connection,

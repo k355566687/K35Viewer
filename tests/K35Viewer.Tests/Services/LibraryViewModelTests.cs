@@ -34,6 +34,8 @@ public class LibraryViewModelTests
 
         public bool ConfirmRemoveLibraryFolder(string folderPath, int archiveCount) => false;
 
+        public bool ConfirmConvertToZip(string fileName, string newFileName, string? keepOriginalReason) => false;
+
         public int SettingsShown { get; private set; }
 
         public void ShowSettings() => SettingsShown++;
