@@ -1,4 +1,4 @@
-using K35Viewer.Domain;
+﻿using K35Viewer.Domain;
 using K35Viewer.Services;
 
 namespace K35Viewer.Tests.Services;
@@ -24,7 +24,7 @@ public class ScanServiceTests
         ctx.CreateFile(@"sub\c.zip");
         ctx.CreateFile(@"sub\deep\d.Zip");
         ctx.CreateFile(@"sub\readme.txt");
-        ctx.CreateFile(@"sub\e.rar");
+        ctx.CreateFile(@"sub\e.lzh");
         var id = await AddAndGetIdAsync(ctx);
 
         var summary = await ctx.Scan.ScanAsync(id, ScanType.Initial, Ct);

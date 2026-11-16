@@ -1,4 +1,4 @@
-using K35Viewer.Infrastructure.Archives;
+﻿using K35Viewer.Infrastructure.Archives;
 
 namespace K35Viewer.Services;
 
@@ -71,6 +71,14 @@ public sealed class ViewerSession : IDisposable
             resumeEntry,
             resumeIndex);
     }
+
+    /// <summary>
+    /// このアーカイブの画像を、削除できるか（削除予約を確定して、ZIP を作り直せるか）。RAR / 7z は、閲覧だけで、false。
+    /// </summary>
+    public bool CanModify => _archive.CanModify;
+
+    /// <summary>ソリッド形式の RAR / 7z か。後ろのページほど、読み出しが遅い。</summary>
+    public bool IsSolid => _archive.IsSolid;
 
     public long ArchiveId { get; }
 

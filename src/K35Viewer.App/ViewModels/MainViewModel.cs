@@ -1,4 +1,4 @@
-using System.ComponentModel;
+﻿using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using K35Viewer.Services;
@@ -61,6 +61,7 @@ public sealed partial class MainViewModel : ObservableObject
         Library.OpenRequested += OnOpenRequested;
         Viewer.CloseRequested += OnCloseRequested;
         Viewer.NavigateArchiveRequested += OnNavigateArchiveRequested;
+        Viewer.DeleteBlocked += (_, message) => _notifications.ShowInfo(message);
         Viewer.PropertyChanged += OnViewerPropertyChanged;
     }
 
@@ -246,6 +247,7 @@ public sealed partial class MainViewModel : ObservableObject
             if (await Viewer.OpenAsync(archiveId))
             {
                 IsViewerVisible = true;
+                AnnounceIfSolid();
             }
         }
         catch (Exception ex)
@@ -362,6 +364,10 @@ public sealed partial class MainViewModel : ObservableObject
             {
                 IsViewerVisible = false;
             }
+            else
+            {
+                AnnounceIfSolid();
+            }
         }
         catch (Exception ex)
         {
@@ -372,6 +378,19 @@ public sealed partial class MainViewModel : ObservableObject
         finally
         {
             _isTransitioning = false;
+        }
+    }
+
+    /// <summary>
+    /// ソリッド形式の RAR / 7z を開いたときに、後ろのページほど、読み出しに時間がかかることを知らせる（ZIP に変換すると速くなる）。
+    /// 開くたびに出る（一覧から開いたとき、前後へ移ったとき）。
+    /// </summary>
+    private void AnnounceIfSolid()
+    {
+        if (Viewer.Session is { IsSolid: true } session)
+        {
+            _notifications.ShowInfo(
+                $"「{session.ArchiveName}」は、ソリッド形式です。後ろのページへ移ると、時間がかかることがあります。ZIP に変換すると速くなります（変換は、今後対応予定です）");
         }
     }
 

@@ -1,13 +1,11 @@
-using K35Viewer.Domain;
+﻿using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Archives;
 
 namespace K35Viewer.Infrastructure.FileSystem;
 
 /// <summary>Windowsファイルシステム操作の集約点。ViewModelやRepositoryから直接ファイルを操作しない。</summary>
 public sealed class FileSystemService
 {
-    private static readonly HashSet<string> ArchiveExtensions =
-        new(StringComparer.OrdinalIgnoreCase) { ".zip", ".cbz" };
-
     private static readonly HashSet<string> IgnoredDirectoryNames =
         new(StringComparer.OrdinalIgnoreCase) { "$RECYCLE.BIN", "System Volume Information" };
 
@@ -205,7 +203,7 @@ public sealed class FileSystemService
                             queue.Enqueue((child, directory.FullName));
                         }
                     }
-                    else if (entry is FileInfo file && ArchiveExtensions.Contains(file.Extension))
+                    else if (entry is FileInfo file && ArchiveFormats.IsSupportedExtension(file.Extension))
                     {
                         archives.Add(new ScannedArchive(file.Name, file.Length, ToUnixSeconds(file)));
                     }

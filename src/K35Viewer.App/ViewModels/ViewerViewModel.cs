@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows.Input;
 using System.Windows.Media.Imaging;
 using CommunityToolkit.Mvvm.ComponentModel;
@@ -81,6 +81,12 @@ public sealed partial class ViewerViewModel(
     /// ライブラリの一覧の並びでの前後を、呼び出し側（<see cref="MainViewModel"/>）が決めて、開く。
     /// </summary>
     public event EventHandler<int>? NavigateArchiveRequested;
+
+    /// <summary>
+    /// 画像の削除予約ができなかった（RAR / 7z は、閲覧だけで、作り直せない）。値は、利用者へ知らせる理由。
+    /// 通知は、呼び出し側（<see cref="MainViewModel"/>）が出す。
+    /// </summary>
+    public event EventHandler<string>? DeleteBlocked;
 
     /// <summary>
     /// 一覧表示で、指定した行（0始まり）を画面に表示してほしい。現在位置が動いたとき、または一覧表示に切り替えたときに発行する。
@@ -863,6 +869,15 @@ public sealed partial class ViewerViewModel(
     /// </summary>
     private void ApplyPendingDelete(ViewerSession session, IReadOnlyList<int> targets, bool pending)
     {
+        // RAR / 7z は、閲覧だけ。予約しても、確定（ZIP の作り直し）できないため、予約させずに、理由を知らせる
+        if (pending && !session.CanModify)
+        {
+            DeleteBlocked?.Invoke(
+                this,
+                "このアーカイブ（RAR / 7z）は、閲覧だけで、画像を削除できません。削除するには、ZIP に変換してください（変換は、今後対応予定です）");
+            return;
+        }
+
         session.SetPendingDelete(targets, pending);
         foreach (var index in targets)
         {

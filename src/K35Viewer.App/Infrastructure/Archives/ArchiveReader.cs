@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using K35Viewer.Domain;
 
 namespace K35Viewer.Infrastructure.Archives;
@@ -27,11 +27,20 @@ public sealed class ArchiveReader : IArchiveReader
     /// <summary>表紙候補として返す最大数。先頭が壊れている場合に、次の画像で代用するための数。</summary>
     public const int MaxCoverCandidates = 3;
 
-    private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png"];
+    // RAR / 7z は、SharpCompress で読む（閲覧だけ）。形式は、拡張子ではなく、ファイルの先頭の署名で決める
+    private readonly SharpCompressArchiveReader _sharpCompress = new();
+
+    private static bool UsesSharpCompress(string archivePath) =>
+        ArchiveFormats.Detect(archivePath) is ArchiveFormat.Rar or ArchiveFormat.SevenZip;
 
     public ArchiveAnalysis Analyze(string archivePath, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+
+        if (UsesSharpCompress(archivePath))
+        {
+            return _sharpCompress.Analyze(archivePath, ct);
+        }
 
         try
         {
@@ -90,6 +99,11 @@ public sealed class ArchiveReader : IArchiveReader
     public ArchiveOpenResult Open(string archivePath, CancellationToken ct = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
+
+        if (UsesSharpCompress(archivePath))
+        {
+            return _sharpCompress.Open(archivePath, ct);
+        }
 
         FileStream? stream = null;
         ZipArchive? zip = null;
@@ -171,6 +185,11 @@ public sealed class ArchiveReader : IArchiveReader
         ArgumentException.ThrowIfNullOrWhiteSpace(archivePath);
         ArgumentException.ThrowIfNullOrWhiteSpace(entryName);
 
+        if (UsesSharpCompress(archivePath))
+        {
+            return _sharpCompress.ReadEntry(archivePath, entryName, maxBytes, ct);
+        }
+
         using var zip = OpenRead(archivePath);
         var entry = zip.GetEntry(entryName)
             ?? throw new FileNotFoundException($"アーカイブ内にエントリがありません: {entryName}");
@@ -213,21 +232,7 @@ public sealed class ArchiveReader : IArchiveReader
         return buffer.ToArray();
     }
 
-    /// <summary>JPEG / PNG のファイルエントリか。フォルダ、macOSのメタデータ(__MACOSX、._*)は除く。</summary>
-    private static bool IsSupportedImage(ZipArchiveEntry entry)
-    {
-        if (string.IsNullOrEmpty(entry.Name))
-        {
-            return false; // フォルダ
-        }
-
-        if (entry.FullName.StartsWith("__MACOSX/", StringComparison.OrdinalIgnoreCase)
-            || entry.Name.StartsWith("._", StringComparison.Ordinal))
-        {
-            return false;
-        }
-
-        var extension = Path.GetExtension(entry.Name);
-        return SupportedExtensions.Contains(extension, StringComparer.OrdinalIgnoreCase);
-    }
+    /// <summary>JPEG / PNG のファイルエントリか。フォルダ、macOSのメタデータ(__MACOSX、._*)は除く（形式によらず共通の判定）。</summary>
+    private static bool IsSupportedImage(ZipArchiveEntry entry) =>
+        !string.IsNullOrEmpty(entry.Name) && ArchiveImageFilter.IsSupportedImage(entry.FullName);
 }

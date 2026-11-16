@@ -1,4 +1,5 @@
-using K35Viewer.Domain;
+﻿using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Archives;
 using Microsoft.Data.Sqlite;
 
 namespace K35Viewer.Infrastructure.Database;
@@ -476,11 +477,7 @@ public sealed class ArchiveBatch : IDisposable
     public Task InsertAsync(
         long folderId, string fileName, long fileSize, long lastWriteTime, long scanId, long now, CancellationToken ct)
     {
-        var extension = Path.GetExtension(fileName).TrimStart('.').ToUpperInvariant() switch
-        {
-            "CBZ" => "cbz",
-            _ => "zip",
-        };
+        var extension = ArchiveFormats.ToDatabaseExtension(Path.GetExtension(fileName));
         return Run(
             _insert,
             ct,

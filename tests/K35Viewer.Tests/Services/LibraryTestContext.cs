@@ -181,6 +181,10 @@ internal sealed class CountingArchiveReader(IArchiveReader inner) : IArchiveRead
     {
         public IReadOnlyList<ArchiveImageEntry> Images => inner.Images;
 
+        public bool CanModify => inner.CanModify;
+
+        public bool IsSolid => inner.IsSolid;
+
         public byte[] ReadEntry(string entryName, long maxBytes, CancellationToken ct = default)
         {
             Interlocked.Increment(ref owner._openedReadCalls);

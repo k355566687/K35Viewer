@@ -1,5 +1,6 @@
-using System.Globalization;
+﻿using System.Globalization;
 using K35Viewer.Domain;
+using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Database;
 using K35Viewer.Infrastructure.FileSystem;
 using Microsoft.Extensions.Logging;
@@ -22,7 +23,6 @@ public sealed partial class ArchiveService
 {
     private const int MaxFileNameLength = 255;
 
-    private static readonly string[] SupportedExtensions = [".zip", ".cbz"];
 
     /// <summary>テスト用。true なら、同じボリューム内の移動でも、異なるボリューム間と同じ「コピーして確認し、元を削除する」手順にする。</summary>
     internal bool AlwaysCopyOnMove { get; init; }
@@ -60,10 +60,10 @@ public sealed partial class ArchiveService
             return new FileNameValidation(null, "ファイル名の最後に「.」は使えません");
         }
 
-        if (!SupportedExtensions.Any(e => name.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
+        if (!ArchiveFormats.SupportedExtensions.Any(e => name.EndsWith(e, StringComparison.OrdinalIgnoreCase)))
         {
             var originalExtension = Path.GetExtension(currentFileName);
-            name += SupportedExtensions.Contains(originalExtension, StringComparer.OrdinalIgnoreCase) ? originalExtension : ".zip";
+            name += ArchiveFormats.IsSupportedExtension(originalExtension) ? originalExtension : ".zip";
         }
 
         var baseName = Path.GetFileNameWithoutExtension(name);
@@ -169,7 +169,7 @@ public sealed partial class ArchiveService
             1,
             source,
             destination);
-        var extension = newName.EndsWith(".cbz", StringComparison.OrdinalIgnoreCase) ? "cbz" : "zip";
+        var extension = ArchiveFormats.ToDatabaseExtension(Path.GetExtension(newName));
         try
         {
             await databaseWriter.ExecuteAsync(

@@ -66,6 +66,61 @@ public sealed partial class MigrationRunner(ILogger<MigrationRunner> logger)
     {
         LogApplying(logger, migration.Name);
 
+        // テーブルを作り直す移行は、外部キーを切って行う（SQLite 公式の手順）。外部キーの切り替えは、トランザクションの外でしか効かない。
+        // 切らずに親の表を消すと、ON DELETE CASCADE で、子の表の行まで消える
+        var foreignKeysOff = migration.DisablesForeignKeys;
+        if (foreignKeysOff)
+        {
+            await SetForeignKeysAsync(connection, enabled: false, ct);
+        }
+
+        try
+        {
+            await ApplyInTransactionAsync(connection, migration, foreignKeysOff, ct);
+        }
+        finally
+        {
+            if (foreignKeysOff)
+            {
+                // 成功・失敗に関わらず、外部キーを元（オン）に戻す（切れたまま使い続けない）
+                await SetForeignKeysAsync(connection, enabled: true, CancellationToken.None);
+            }
+        }
+
+        LogApplied(logger, migration.Name);
+    }
+
+    private static async Task SetForeignKeysAsync(SqliteConnection connection, bool enabled, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.CommandText = enabled ? "PRAGMA foreign_keys = ON" : "PRAGMA foreign_keys = OFF";
+        await command.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>移行のあと、外部キーの整合を確かめる。問題があれば、違反した表を示して、例外にする（呼び出し側が取り消す）。</summary>
+    private static async Task EnsureForeignKeysConsistentAsync(
+        SqliteConnection connection, SqliteTransaction transaction, string migrationName, CancellationToken ct)
+    {
+        await using var command = connection.CreateCommand();
+        command.Transaction = transaction;
+        command.CommandText = "PRAGMA foreign_key_check";
+        await using var reader = await command.ExecuteReaderAsync(ct);
+        var violations = new List<string>();
+        while (await reader.ReadAsync(ct))
+        {
+            violations.Add(reader.GetString(0)); // 違反のある表の名前
+        }
+
+        if (violations.Count > 0)
+        {
+            throw new InvalidOperationException(
+                $"マイグレーション {migrationName} のあと、外部キーの整合がとれていません（{string.Join(", ", violations.Distinct())}）。取り消しました。");
+        }
+    }
+
+    private async Task ApplyInTransactionAsync(
+        SqliteConnection connection, Migration migration, bool checkForeignKeys, CancellationToken ct)
+    {
         await using var transaction = (SqliteTransaction)await connection.BeginTransactionAsync(ct);
         try
         {
@@ -91,6 +146,11 @@ public sealed partial class MigrationRunner(ILogger<MigrationRunner> logger)
                 await version.ExecuteNonQueryAsync(ct);
             }
 
+            if (checkForeignKeys)
+            {
+                await EnsureForeignKeysConsistentAsync(connection, transaction, migration.Name, ct);
+            }
+
             await transaction.CommitAsync(ct);
         }
         catch (Exception ex)
@@ -99,8 +159,6 @@ public sealed partial class MigrationRunner(ILogger<MigrationRunner> logger)
             await transaction.RollbackAsync(CancellationToken.None);
             throw;
         }
-
-        LogApplied(logger, migration.Name);
     }
 
     [LoggerMessage(Level = LogLevel.Information, Message = "マイグレーションを適用します: {Name}")]

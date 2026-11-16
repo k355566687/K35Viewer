@@ -1,4 +1,4 @@
-using K35Viewer.Domain;
+﻿using K35Viewer.Domain;
 using K35Viewer.Infrastructure.Database;
 using Microsoft.Data.Sqlite;
 
@@ -6,6 +6,10 @@ namespace K35Viewer.Tests.Infrastructure;
 
 public class DatabaseInitializerTests
 {
+    /// <summary>アプリに埋め込んだ、最新のスキーマの版。</summary>
+    private static readonly int LatestVersion =
+        Migration.LoadEmbedded(typeof(DatabaseInitializer).Assembly).Max(m => m.Version);
+
     private static readonly string[] ExpectedTables =
     [
         "app_metadata", "library_folders", "scan_runs", "folders",
@@ -29,7 +33,7 @@ public class DatabaseInitializerTests
             Assert.Equal(1, count);
         }
 
-        Assert.Equal(1, await MigrationRunner.GetSchemaVersionAsync(connection, TempDatabase.Ct));
+        Assert.Equal(LatestVersion, await MigrationRunner.GetSchemaVersionAsync(connection, TempDatabase.Ct));
     }
 
     [Fact]
@@ -48,7 +52,7 @@ public class DatabaseInitializerTests
 
         await using var after = await db.OpenAsync();
         Assert.Equal(1, await TempDatabase.ScalarLongAsync(after, "SELECT COUNT(*) FROM library_folders"));
-        Assert.Equal(1, await MigrationRunner.GetSchemaVersionAsync(after, TempDatabase.Ct));
+        Assert.Equal(LatestVersion, await MigrationRunner.GetSchemaVersionAsync(after, TempDatabase.Ct));
     }
 
     [Fact]

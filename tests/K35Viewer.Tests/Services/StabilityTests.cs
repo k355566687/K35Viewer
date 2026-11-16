@@ -1,4 +1,4 @@
-using K35Viewer.Domain;
+﻿using K35Viewer.Domain;
 using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Logging;
 using K35Viewer.Services;
@@ -340,6 +340,8 @@ public class StabilityTests
     private sealed class DisconnectableArchive(IReadOnlyList<(string Name, byte[] Data)> entries) : K35Viewer.Infrastructure.Archives.IOpenedArchive
     {
         public bool Connected { get; set; } = true;
+        public bool CanModify => true;
+        public bool IsSolid => false;
 
         public IReadOnlyList<K35Viewer.Infrastructure.Archives.ArchiveImageEntry> Images { get; } =
             [.. entries.Select(e => new K35Viewer.Infrastructure.Archives.ArchiveImageEntry(e.Name, e.Data.Length))];

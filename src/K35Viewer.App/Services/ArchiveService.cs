@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using K35Viewer.Domain;
 using K35Viewer.Infrastructure.Archives;
 using K35Viewer.Infrastructure.Database;
@@ -125,6 +125,12 @@ public sealed partial class ArchiveService(
         if (fileSystem.TryGetFileState(request.FullPath) is null)
         {
             return "アーカイブのファイルが見つからないため、更新できません";
+        }
+
+        // RAR / 7z は、作り直せない（閲覧だけ）。画像の削除予約を、そもそも受け付けないが、念のため
+        if (ArchiveFormats.Detect(request.FullPath) is ArchiveFormat.Rar or ArchiveFormat.SevenZip)
+        {
+            return "ZIP 形式ではないため、更新できません";
         }
 
         if (IsChangedExternally(request.FullPath, request.ExpectedState))

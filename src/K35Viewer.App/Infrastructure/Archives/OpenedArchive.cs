@@ -1,4 +1,4 @@
-using System.IO.Compression;
+﻿using System.IO.Compression;
 using K35Viewer.Domain;
 
 namespace K35Viewer.Infrastructure.Archives;
@@ -18,6 +18,16 @@ public interface IOpenedArchive : IDisposable
 
     /// <summary>エントリの内容を全部メモリへ読み込む。maxBytes を超える場合は <see cref="InvalidDataException"/>。</summary>
     byte[] ReadEntry(string entryName, long maxBytes, CancellationToken ct = default);
+
+    /// <summary>
+    /// このアーカイブを、作り直せるか（画像の削除予約を確定できるか）。ZIP だけ true。RAR / 7z は、閲覧だけ（書き込みの形式が公開されていない）。
+    /// </summary>
+    bool CanModify { get; }
+
+    /// <summary>
+    /// ソリッド形式（全体を1つの塊に圧縮した RAR / 7z）か。1枚だけ取り出すにも、手前を読み進めるため、後ろのページほど遅い。
+    /// </summary>
+    bool IsSolid { get; }
 }
 
 /// <summary>
@@ -33,6 +43,10 @@ internal sealed class OpenedZip(ZipArchive zip, IReadOnlyList<ArchiveImageEntry>
 {
     // ZipArchive は、同じストリームから複数のエントリを同時に読むと壊れるため、読み取りを直列化する
     private readonly object _lock = new();
+
+    public bool CanModify => true;
+
+    public bool IsSolid => false;
     private bool _disposed;
 
     public IReadOnlyList<ArchiveImageEntry> Images { get; } = images;

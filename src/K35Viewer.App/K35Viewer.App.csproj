@@ -26,6 +26,7 @@
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
     <PackageReference Include="Serilog.Extensions.Logging" />
+    <PackageReference Include="SharpCompress" />
     <PackageReference Include="Serilog.Sinks.File" />
   </ItemGroup>
 

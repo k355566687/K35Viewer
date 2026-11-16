@@ -1,4 +1,4 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -24,6 +24,11 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\K35Viewer.App\K35Viewer.App.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 7z のテスト用ファイル（小さな画像だけ。7-Zip で作った）。テストの出力へ、そのままコピーする -->
+    <None Include="Fixtures\**" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
