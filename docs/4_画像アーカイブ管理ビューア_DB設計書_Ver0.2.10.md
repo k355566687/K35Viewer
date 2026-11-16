@@ -1,13 +1,15 @@
 # 画像アーカイブ管理ビューア DB設計書
 
-**文書バージョン:** Ver.0.2.9  
+**文書バージョン:** Ver.0.2.10  
 **作成日:** 2026-11-06  
-**更新日:** 2026-11-07  
+**更新日:** 2026-11-16  
 **対象:** MVP  
 **DBMS:** SQLite
 
 ## 1. 修正内容
-
+### Ver.0.2.10（RAR / 7z の閲覧に伴う変更。GitHub の Issue #3）
+- `archives.extension` に、`rar`、`cbr`、`7z`、`cb7` を許した。6.3を更新
+- 初期DDL（8章）は変更せず、2番目のマイグレーション（`0002_archive_formats.sql`）で表を作り直す。`schema_version` は2になる。13章を追加
 ### Ver.0.2.9（Phase 9 実装に伴う確定事項）
 
 - 名前変更・移動・削除・管理フォルダの解除のDB反映を確定した。11.1、11.2、11.4、11.5を更新
@@ -192,7 +194,7 @@ scan_runs
 | `id` | INTEGER | NO | Archive ID、主キー |
 | `folder_id` | INTEGER | NO | 現在格納されているフォルダID |
 | `file_name` | TEXT | NO | 拡張子を含むファイル名 |
-| `extension` | TEXT | NO | `zip` または `cbz` |
+| `extension` | TEXT | NO | ファイル名の拡張子（小文字、先頭の点なし）。`zip`、`cbz`、`rar`、`cbr`、`7z`、`cb7` のいずれか（`rar` 以降は schema_version 2 から。13章）。中身の形式ではない（中身の形式は、開くときにファイルの先頭の署名で判定する） |
 | `file_size` | INTEGER | NO | ファイルサイズ、バイト |
 | `last_write_time` | INTEGER | NO | ファイル更新日時 UTC |
 | `image_count` | INTEGER | YES | 対応画像数。未解析時はNULL |
@@ -732,3 +734,25 @@ ZIPを開くのは、この処理と、ビューアで閲覧するときだけ�
 4. `IMAGE_DELETE` の `details_json` へ削除対象画像のエントリ名一覧を保存するか
 5. （確定）ごみ箱が使えない場合のバックアップ情報はDBへ持たない。アーカイブ削除は確認のうえ完全削除、ZIP再構築は中止とする
 6. ファイル名部分一致検索が10,000件規模で十分な速度かプロトタイプで確認する
+## 13. スキーマの移行
+マイグレーションは、アプリに埋め込んだSQL（`Migrations/000N_*.sql`）を番号の順に適用する（`MigrationRunner`）。1つずつトランザクションで行い、成功したら `app_metadata.schema_version` をその番号にする。失敗したら、そのマイグレーションを取り消す。DBの `schema_version` がアプリの知っている番号より新しい場合は、開かない（新しい版で作ったDBを、古い版で壊さないため。復元でも、新しい版で作ったバックアップは受け付けない）。
+
+| schema_version | ファイル | 内容 |
+|---:|---|---|
+| 1 | `0001_initial.sql` | 初期DDL（8章） |
+| 2 | `0002_archive_formats.sql` | `archives.extension` のCHECKに、`rar`、`cbr`、`7z`、`cb7` を加える（GitHub の Issue #3） |
+
+### 13.1 表の作り直し（0002）
+SQLiteは、CHECK制約をあとから変更できないため、SQLite公式の手順で `archives` を作り直す。
+
+1. `archives` の連番（`sqlite_sequence`）の位置を、一時表に覚えておく
+2. 新しいCHECKの `archives_new` を作り、全行を、IDを含めてそのまま写す
+3. 古い `archives` を消し、`archives_new` を `archives` に名前を変える
+4. 連番の位置を、覚えておいた値に戻す（戻さないと、消したアーカイブのIDが再び使われる。IDはサムネイルのファイル名に使っている）
+5. `archives` の索引を作り直す（表を消すと、索引も消えるため。0001と同じもの）
+
+外部キーは、この間だけ切る。切らずに `archives` を消すと、`ON DELETE CASCADE` で `thumbnail_cache` の行まで消えるため。
+
+- マイグレーションのファイルの先頭に `-- k35:foreign-keys=off` と書くと、`MigrationRunner` が、トランザクションの前に `PRAGMA foreign_keys = OFF` にし、終わったあと（成功・失敗に関わらず）ONに戻す。外部キーの切り替えは、トランザクションの中では効かないため
+- コミットの前に `PRAGMA foreign_key_check` で整合を確かめ、違反があれば、違反した表を示して例外にし、全体を取り消す
+- 移行の前後で、`archives` の行、ID、`thumbnail_cache` などの子の表の行、連番の位置が変わらないことを、テストで確かめている

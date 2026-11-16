@@ -1,8 +1,8 @@
 ﻿# 画像アーカイブ管理ビューア 開発環境設計書
 
-**文書バージョン:** Ver.0.2.20（19章に、更新の実地確認の結果と、更新の間の表示を追加。Ver.0.2.19: 19章に、v0.2.0 公開後の追加（前後のアーカイブへ移る操作）を追加。Ver.0.2.18: 17.4 版ごとのリリースノートを追加。Ver.0.2.17: 19章 Phase 13 の復元を手で確かめた結果と、アプリのバージョンを 0.2.0 に上げたことを追加。Ver.0.2.16: 17.4・18章に配布物のハッシュ、19章に v0.2.0 Phase 14（アプリの更新）の結果を追加。Ver.0.2.15: 19章 Phase 13 に、復元の結果を追加。Ver.0.2.14: 19章に v0.2.0 Phase 13（バックアップの作成）の結果を追加。Ver.0.2.13: 19章に v0.2.0 Phase 12 の結果を追加。Ver.0.2.12: 11章に設定のファイル、19章に v0.2.0 の実装順序と Phase 11 の結果を追加。Ver.0.2.11: 16.4 GitHub、17.4 リリース、18章 CI（GitHub Actions）を確定。Ver.0.2.10: 5.3 外観（テーマ）、11.5 データの配置先の切り替え、15.5 画面の確認用のサンプル、19章 画面の見た目の確認を追加）  
+**文書バージョン:** Ver.0.2.21（2章・6章に SharpCompress、19章に RAR / 7z の閲覧の結果を追加。Ver.0.2.20: 19章に、更新の実地確認の結果と、更新の間の表示を追加。Ver.0.2.19: 19章に、v0.2.0 公開後の追加（前後のアーカイブへ移る操作）を追加。Ver.0.2.18: 17.4 版ごとのリリースノートを追加。Ver.0.2.17: 19章 Phase 13 の復元を手で確かめた結果と、アプリのバージョンを 0.2.0 に上げたことを追加。Ver.0.2.16: 17.4・18章に配布物のハッシュ、19章に v0.2.0 Phase 14（アプリの更新）の結果を追加。Ver.0.2.15: 19章 Phase 13 に、復元の結果を追加。Ver.0.2.14: 19章に v0.2.0 Phase 13（バックアップの作成）の結果を追加。Ver.0.2.13: 19章に v0.2.0 Phase 12 の結果を追加。Ver.0.2.12: 11章に設定のファイル、19章に v0.2.0 の実装順序と Phase 11 の結果を追加。Ver.0.2.11: 16.4 GitHub、17.4 リリース、18章 CI（GitHub Actions）を確定。Ver.0.2.10: 5.3 外観（テーマ）、11.5 データの配置先の切り替え、15.5 画面の確認用のサンプル、19章 画面の見た目の確認を追加）  
 **作成日:** 2026-11-06  
-**更新日:** 2026-11-13  
+**更新日:** 2026-11-16  
 **対象:** MVP
 
 ## 1. 目的
@@ -32,6 +32,7 @@
 | DB | SQLite | アプリ内ローカルDB |
 | DBアクセス | Microsoft.Data.Sqlite | SQL直書き、パラメーター化クエリ |
 | ZIP | System.IO.Compression | ZIP / CBZ読み取り・再構築 |
+| RAR / 7z | SharpCompress | RAR / CBR・7z / CB7 の読み取り（閲覧だけ。v0.2.0 の後に追加） |
 | 画像 | WPF標準画像API | MVPはJPEG / PNG |
 | ログ | Microsoft.Extensions.Logging + Serilog | ローカルファイルへローリング保存 |
 | テスト | xUnit | Unit Testと一時ファイルを用いた結合テスト |
@@ -277,6 +278,7 @@ ARM64対応はMVP完成後に検討する。
 | `Microsoft.Extensions.Options.ConfigurationExtensions` | Options設定 | 将来の設定画面と構成ファイルに備える |
 | `Serilog.Extensions.Logging` | Microsoft Loggingとの統合 | `ILogger<T>`を維持したままファイル出力 |
 | `Serilog.Sinks.File` | ローカルログファイル | 日次・サイズ単位のローリングログ |
+| `SharpCompress` | RAR / 7z の読み取り | 純粋な .NET（ネイティブのDLLが要らない）、MIT。RAR 4 / 5 と 7z を読める。ZIP には使わない（ZIP の読み書きは System.IO.Compression のまま） |
 | `xunit.v3` | テストフレームワーク（xUnit v3） | Unit Testと結合テスト |
 | `xunit.runner.visualstudio` | Visual Studio Test Explorer | IDEからテスト実行 |
 | `Microsoft.NET.Test.Sdk` | テスト基盤 | `dotnet test`とTest Explorer |
@@ -300,6 +302,14 @@ MVPでは採用しない。
 
 `Microsoft.Data.Sqlite` のコマンドとリーダーで規模的に対応可能と判断する。SQLマッピングが冗長になった場合に再評価する。
 
+#### ほかのアーカイブのライブラリ
+RAR / 7z の読み取りには、SharpCompress だけを使う（v0.2.0 の後）。次は採用しない。
+
+- 7-Zip の `7z.dll`（SevenZipSharp など）: 読める形式は最も広いが、ネイティブのDLLを同梱し、ライセンス（LGPL と unRAR の制限）に従って配る必要がある
+- Susie プラグイン、統合アーカイバのDLL（caldix で入れる UNLHA32.DLL など）: 多くが32bitで、64bitのアプリから直接読み込めない。利用者がDLLを別に入れる必要もある
+- ZIP も SharpCompress に載せ替えること: 作り直し（書き込み）の処理を変えると、壊す危険があるため
+
+ほかの形式（TAR / CBT など）は、GitHub の Issue #21 で検討する。
 #### 画像処理ライブラリ
 
 MVPではImageSharp等を導入せず、WPFの `BitmapDecoder`、`BitmapImage`、`TransformedBitmap` 等でJPEG / PNG表示とサムネイル生成を行う。
@@ -322,6 +332,7 @@ EXIF回転、色管理、巨大画像のメモリ消費等で不足が判明し�
     <PackageVersion Include="Microsoft.Extensions.Options.ConfigurationExtensions" Version="10.0.14" />
     <PackageVersion Include="Serilog.Extensions.Logging" Version="10.0.0" />
     <PackageVersion Include="Serilog.Sinks.File" Version="7.0.0" />
+    <PackageVersion Include="SharpCompress" Version="1.0.0" />
     <PackageVersion Include="xunit.v3" Version="4.0.2" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.5" />
     <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="18.11.0" />
@@ -340,6 +351,7 @@ EXIF回転、色管理、巨大画像のメモリ消費等で不足が判明し�
 | `Microsoft.Extensions.Options.ConfigurationExtensions` | 10.0.14 | 同上 |
 | `Serilog.Extensions.Logging` | 10.0.0 | |
 | `Serilog.Sinks.File` | 7.0.0 | 8.0.0系はdev版のみのため7.0.0を採用 |
+| `SharpCompress` | 1.0.0 | v0.2.0 の後に追加（GitHub の Issue #3） |
 | `xunit.v3` | 4.0.2 | xUnit v3。パッケージ名の「v3」とバージョン番号は別。テストプロジェクトは実行可能ファイルとして作成される |
 | `xunit.runner.visualstudio` | 3.1.5 | |
 | `Microsoft.NET.Test.Sdk` | 18.11.0 | |
@@ -1144,6 +1156,15 @@ GitHub Actions を使う（`.github/workflows/`）。Windows固有のWPFビル�
 
 - v0.2.1 を公開し、v0.2.0 から、アプリの中の「更新する」で、実際に更新できた（GitHub Issue #11 の確認）。リリースのワークフローが、配布物とハッシュ（`.sha256`）を添付することも確かめた
 - 更新の間、設定画面が操作できて、アプリが消えてから新しい画面が出るまで何も表示されないため、分かりにくかった。更新の間は、画面全体を覆う「更新しています」の表示を出して操作できなくし（設定画面）、入れ替えの間は、小さな「更新しています」のウィンドウを出すようにした（内部アーキテクチャ設計書 36章）。自動テストは561件（スキップ2件は従来どおり）
+
+**RAR / 7z の閲覧（GitHub Issue #3）:**
+
+- RAR / CBR と 7z / CB7 を、閲覧だけで開けるようにした（SharpCompress 1.0.0。内部アーキテクチャ設計書 38章）。削除予約は受け付けず、ZIP への変換を案内する（変換は Issue #20）。DB は、2番目のマイグレーションで `archives.extension` のCHECKを広げた（DB設計書 13章）
+- 7z のテスト用のファイルを作るため、開発機に 7-Zip を入れた（`winget install 7zip.7zip`。テストの実行には要らない。ファイルはリポジトリに置く）。RAR はテストの中で組み立てる
+- 実際の RAR（非ソリッド、JPEG 12枚）で、スキャン、サムネイル、閲覧ができることを手で確かめた
+- `IOpenedArchive` に既定の実装を置いていたため、テスト用の包むクラスが、新しい性質を中身へ渡していなかった（テストで見つけた）。既定の実装をやめ、実装ごとに明示するようにした
+- 負荷の高いときに、通知の表示のテストが、最初の確認より先に通知が消えて、時々失敗していた。表示時間を延ばし、消えるのを期限つきで待つようにした
+- 自動テストは643件（スキップ2件は従来どおり）
 
 ## 20. 最初に行う技術スパイク
 
