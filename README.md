@@ -165,5 +165,8 @@ This program will not transfer any information to other networked systems unless
 このプロジェクトに参加する方は、[行動規範（Contributor Covenant）](CODE_OF_CONDUCT.md) に従ってください。
 
 ## ライセンス
-
 [MIT License](LICENSE)
+
+35Viewer は、次のオープンソースの部品を使っています（配布物にも含まれます）。.NET ランタイムと WPF、Microsoft.Extensions、Microsoft.Data.Sqlite、CommunityToolkit.Mvvm、SharpCompress（MIT License）、Serilog、SQLitePCLRaw（Apache License 2.0）、SQLite（パブリックドメイン）。それぞれの著作権とライセンスの全文は [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt) にあります。配布物（ZIP）では、同じフォルダの `LICENSE.txt`、`THIRD-PARTY-NOTICES.txt` と、`licenses` フォルダの中にあります。
+
+35Viewer uses the open-source components listed in [THIRD-PARTY-NOTICES.txt](THIRD-PARTY-NOTICES.txt), which is also included in the release ZIP together with `LICENSE.txt` and the `licenses` folder.
