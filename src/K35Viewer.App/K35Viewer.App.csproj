@@ -21,7 +21,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="CommunityToolkit.Mvvm" />
+    <!-- GeneratePathProperty: 配布物に、このパッケージの第三者の告知を写すため（下の AddThirdPartyNoticeFiles） -->
+    <PackageReference Include="CommunityToolkit.Mvvm" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.Data.Sqlite" />
     <PackageReference Include="Microsoft.Extensions.Hosting" />
     <PackageReference Include="Microsoft.Extensions.Options.ConfigurationExtensions" />
@@ -44,5 +45,29 @@
   <ItemGroup>
     <InternalsVisibleTo Include="K35Viewer.Tests" />
   </ItemGroup>
+  <!--
+    ライセンスの表示（GitHub の Issue #22）。配布物（publish）の直下に、アプリのライセンスと、第三者の部品の告知を置く。
+    THIRD-PARTY-NOTICES.txt は手で書く（同梱する部品が、すべて載っていることは、テストで確かめる）。
+    licenses の中は、ビルドに使ったパッケージから写す（版が変わっても、その版の告知になる）。
+  -->
+  <ItemGroup>
+    <None Include="..\..\LICENSE" Link="LICENSE.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <None Include="..\..\THIRD-PARTY-NOTICES.txt" Link="THIRD-PARTY-NOTICES.txt" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+  </ItemGroup>
+  <Target Name="AddThirdPartyNoticeFiles" AfterTargets="ComputeResolvedFilesToPublishList">
+    <ItemGroup>
+      <_K35RuntimeNotice Include="@(ResolvedRuntimePack->'%(PackageDirectory)\THIRD-PARTY-NOTICES.TXT')"
+                         Condition="'%(ResolvedRuntimePack.FrameworkName)' == 'Microsoft.NETCore.App'" />
+      <_K35ToolkitNotice Include="$(PkgCommunityToolkit_Mvvm)\ThirdPartyNotices.txt" />
+    </ItemGroup>
+    <Error Condition="'@(_K35RuntimeNotice)' == '' or !Exists('@(_K35RuntimeNotice)')"
+           Text=".NET ランタイムの第三者の告知（THIRD-PARTY-NOTICES.TXT）が見つかりません。配布物に告知を入れられないため、中止します。" />
+    <Error Condition="!Exists('@(_K35ToolkitNotice)')"
+           Text="CommunityToolkit.Mvvm の第三者の告知（ThirdPartyNotices.txt）が見つかりません: @(_K35ToolkitNotice)" />
+    <ItemGroup>
+      <ResolvedFileToPublish Include="@(_K35RuntimeNotice)" RelativePath="licenses\dotnet-runtime-THIRD-PARTY-NOTICES.txt" CopyToPublishDirectory="PreserveNewest" />
+      <ResolvedFileToPublish Include="@(_K35ToolkitNotice)" RelativePath="licenses\CommunityToolkit.Mvvm-ThirdPartyNotices.txt" CopyToPublishDirectory="PreserveNewest" />
+    </ItemGroup>
+  </Target>
 
 </Project>
