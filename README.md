@@ -1,14 +1,15 @@
 ﻿# 35Viewer
 
-画像アーカイブ（ZIP / CBZ）を、ライブラリとして管理しながら閲覧する Windows 用のビューアです。
+画像アーカイブ（ZIP / CBZ。RAR / 7z は閲覧と ZIP への変換）を、ライブラリとして管理しながら閲覧する Windows 用のビューアです。
 複数のフォルダにあるアーカイブを横断して探し、開いて見ながら、不要な画像をその場で削除できます。
 
-現在の版は v0.2.2（試用版）です。v0.2.0 で、設定画面、バックアップと復元、アプリの更新を加え、v0.2.1 で、ビューアから一覧に戻らずに、前後のアーカイブへ移れるようにし、v0.2.2 で、アプリの更新の間の表示を分かりやすくしました。
+現在の版は v0.2.3（試用版）です。v0.2.0 で、設定画面、バックアップと復元、アプリの更新を加え、v0.2.1 で、ビューアから一覧に戻らずに、前後のアーカイブへ移れるようにし、v0.2.2 で、アプリの更新の間の表示を分かりやすくし、v0.2.3 で、RAR / 7z（CBR / CB7）の閲覧と、ZIP への変換を加えました。
 
 > **English summary**: 35Viewer is a free, open-source Windows desktop application (WPF / .NET 10) for browsing and managing
-> image archives (ZIP / CBZ). It indexes archives across multiple folders, shows them as a searchable library with thumbnails,
+> image archives (ZIP / CBZ; RAR / 7z can be viewed and converted to ZIP). It indexes archives across multiple folders, shows them as a searchable library with thumbnails,
 > and lets you view the images and remove unwanted ones from an archive safely (the original archive is moved to the Recycle Bin).
-> Version 0.2.0 adds a settings window (appearance, confirmations), backup and restore of the app
+> Version 0.2.0 adds a settings window (appearance, confirmations), backup and restore of the app data, and in-app updates.
+> Version 0.2.3 adds viewing RAR / 7z (CBR / CB7) archives and converting them to ZIP.
 > Binaries are built by GitHub Actions from this repository and published as a ZIP on [GitHub Releases](https://github.com/k355566687/K35Viewer/releases).
 > See [Code signing policy](CODE_SIGNING.md), [Privacy](#プライバシー--privacy) and [Uninstall](#アンインストール--uninstall).
 
@@ -48,6 +49,10 @@ There is no installer. To uninstall, delete the extracted folder. To also remove
   - 不要な画像を「削除予約」し、アーカイブを離れるときに、まとめて ZIP から取り除く
   - 更新前の ZIP は Windows のごみ箱へ退避する。新しい ZIP を作って確かめてから置き換えるため、途中で失敗しても元の ZIP は壊れない
 
+- **RAR / 7z（CBR / CB7）**（v0.2.3）
+  - 閲覧（スキャン、サムネイル、ビューア）。形式は、ファイルの中身で判定する
+  - ZIP への変換（右クリックメニュー、またはビューアのツールバーから）。閲覧位置とサムネイルを引き継ぎ、元のファイルはごみ箱へ
+  - 画像の削除は、ZIP に変換してから
 - **設定画面**（v0.2.0）
   - 外観（ダーク / ライト / Windowsの設定に合わせる）。再起動せずに、その場で切り替わる
   - 確認のオン/オフ（アーカイブから離れるとき、アーカイブを削除するとき）
@@ -55,7 +60,7 @@ There is no installer. To uninstall, delete the extracted folder. To also remove
 - **バックアップと復元**（v0.2.0）: アプリのデータを1つのファイルに保存し、その時点に戻せる
 - **アプリの更新**（v0.2.0）: 新しい版を確かめ、アプリの中で入れ替える。押したときだけ通信する
 
-対応形式は ZIP / CBZ の中の JPEG / PNG です（WebP、GIF、RAR、7z などは未対応）。
+対応形式は ZIP / CBZ / RAR / CBR / 7z / CB7 の中の JPEG / PNG です（RAR / 7z は閲覧と ZIP への変換だけ。暗号化・分割されたアーカイブ、WebP、GIF などは未対応）。
 
 ## 設定・バックアップ・更新
 
