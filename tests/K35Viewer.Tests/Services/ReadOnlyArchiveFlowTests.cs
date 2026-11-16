@@ -137,7 +137,8 @@ public class ReadOnlyArchiveFlowTests
         harness.Notifications.Notified += (_, n) => shown.Add(n);
 
         harness.Library.OpenArchiveCommand.Execute(harness.Library.Archives.Single(a => a.FileName == "a-solid.7z"));
-        await WaitUntilAsync(() => harness.Viewer.IsOpen && harness.Main.IsViewerVisible);
+        // 案内は、画面を切り替えたあとに出る。開く処理が終わるまで待つ
+        await WaitUntilAsync(() => harness.Viewer.IsOpen && harness.Main.IsViewerVisible && !harness.Main.IsTransitioning);
 
         var hint = Assert.Single(shown);
         Assert.Contains("ソリッド", hint.Message, StringComparison.Ordinal);
