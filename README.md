@@ -3,13 +3,14 @@
 画像アーカイブ（ZIP / CBZ。RAR / 7z は閲覧と ZIP への変換）を、ライブラリとして管理しながら閲覧する Windows 用のビューアです。
 複数のフォルダにあるアーカイブを横断して探し、開いて見ながら、不要な画像をその場で削除できます。
 
-現在の版は v0.2.3（試用版）です。v0.2.0 で、設定画面、バックアップと復元、アプリの更新を加え、v0.2.1 で、ビューアから一覧に戻らずに、前後のアーカイブへ移れるようにし、v0.2.2 で、アプリの更新の間の表示を分かりやすくし、v0.2.3 で、RAR / 7z（CBR / CB7）の閲覧と、ZIP への変換を加えました。
+現在の版は v0.2.4（試用版）です。v0.2.0 で、設定画面、バックアップと復元、アプリの更新を加え、v0.2.1 で、ビューアから一覧に戻らずに、前後のアーカイブへ移れるようにし、v0.2.2 で、アプリの更新の間の表示を分かりやすくし、v0.2.3 で、RAR / 7z（CBR / CB7）の閲覧と、ZIP への変換を加え、v0.2.4 で、GIF / WebP の画像への対応と、新着の表示を加えました。
 
 > **English summary**: 35Viewer is a free, open-source Windows desktop application (WPF / .NET 10) for browsing and managing
 > image archives (ZIP / CBZ; RAR / 7z can be viewed and converted to ZIP). It indexes archives across multiple folders, shows them as a searchable library with thumbnails,
 > and lets you view the images and remove unwanted ones from an archive safely (the original archive is moved to the Recycle Bin).
 > Version 0.2.0 adds a settings window (appearance, confirmations), backup and restore of the app data, and in-app updates.
 > Version 0.2.3 adds viewing RAR / 7z (CBR / CB7) archives and converting them to ZIP.
+> Version 0.2.4 adds GIF / WebP images and a "new" badge for newly found archives.
 > Binaries are built by GitHub Actions from this repository and published as a ZIP on [GitHub Releases](https://github.com/k355566687/K35Viewer/releases).
 > See [Code signing policy](CODE_SIGNING.md), [Privacy](#プライバシー--privacy) and [Uninstall](#アンインストール--uninstall).
 
@@ -41,6 +42,7 @@ There is no installer. To uninstall, delete the extracted folder. To also remove
   - 1万件以上でも、ZIP を開かずに一覧を表示（SQLite のインデックスとサムネイルのキャッシュ）
   - アーカイブの名前変更・移動・削除（ごみ箱へ）、エクスプローラーで表示
   - 表示方式（詳細 / サムネイル）を覚えて、次の起動でも同じ表示で始める
+  - 新しく見つかったアーカイブに「新着」の印を付ける。開くか、「新着を既読に」で外れる。「新着だけ」で絞り込める（v0.2.4）
 - **ビューア**
   - 1枚表示（拡大・縮小、ウィンドウに合わせる、原寸、全画面）と一覧表示（表示方式は、次の起動でも覚えている）
   - 前回見ていた画像から開く
@@ -60,7 +62,7 @@ There is no installer. To uninstall, delete the extracted folder. To also remove
 - **バックアップと復元**（v0.2.0）: アプリのデータを1つのファイルに保存し、その時点に戻せる
 - **アプリの更新**（v0.2.0）: 新しい版を確かめ、アプリの中で入れ替える。押したときだけ通信する
 
-対応形式は ZIP / CBZ / RAR / CBR / 7z / CB7 の中の JPEG / PNG です（RAR / 7z は閲覧と ZIP への変換だけ。暗号化・分割されたアーカイブ、WebP、GIF などは未対応）。
+対応形式は ZIP / CBZ / RAR / CBR / 7z / CB7 の中の JPEG / PNG / GIF / WebP です（RAR / 7z は閲覧と ZIP への変換だけ。GIF は最初の1コマだけを静止画として扱います。WebP は、Windows の「WebP 画像拡張機能」がない環境では表示できません。暗号化・分割されたアーカイブ、AVIF / HEIC などは未対応）。
 
 ## 設定・バックアップ・更新
 
