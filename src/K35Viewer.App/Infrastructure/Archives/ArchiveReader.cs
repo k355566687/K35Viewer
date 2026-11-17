@@ -232,7 +232,7 @@ public sealed class ArchiveReader : IArchiveReader
         return buffer.ToArray();
     }
 
-    /// <summary>JPEG / PNG のファイルエントリか。フォルダ、macOSのメタデータ(__MACOSX、._*)は除く（形式によらず共通の判定）。</summary>
+    /// <summary>JPEG / PNG / GIF / WebP のファイルエントリか。フォルダ、macOSのメタデータ(__MACOSX、._*)は除く（形式によらず共通の判定）。</summary>
     private static bool IsSupportedImage(ZipArchiveEntry entry) =>
         !string.IsNullOrEmpty(entry.Name) && ArchiveImageFilter.IsSupportedImage(entry.FullName);
 }

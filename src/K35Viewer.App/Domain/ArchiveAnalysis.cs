@@ -33,7 +33,7 @@ public static class ArchiveAnalysisStatusExtensions
 }
 
 /// <summary>
-/// ZIP / CBZ を1回開いて得た情報。ImageCount は対応画像(JPEG / PNG)の数。
+/// ZIP / CBZ を1回開いて得た情報。ImageCount は対応画像(JPEG / PNG / GIF / WebP)の数。
 /// CoverCandidates は自然順で先頭から数枚の画像エントリ名で、表紙サムネイルの元画像の候補(先頭が表紙)。
 /// </summary>
 public sealed record ArchiveAnalysis(

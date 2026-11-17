@@ -115,7 +115,10 @@ public sealed class SharpCompressArchiveReaderTests : IDisposable
     [InlineData("sub/dir/002.JPEG", true)]
     [InlineData("sub\\dir\\003.PNG", true)] // RAR は、区切りが \ のことがある
     [InlineData("readme.txt", false)]
-    [InlineData("image.webp", false)]
+    [InlineData("image.webp", true)]
+    [InlineData("sub/004.GIF", true)]
+    [InlineData("image.bmp", false)]
+    [InlineData("image.avif", false)]
     [InlineData("noextension", false)]
     [InlineData("folder/", false)]
     [InlineData("folder\\", false)]

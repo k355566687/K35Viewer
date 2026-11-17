@@ -96,6 +96,34 @@ public class ThumbnailGeneratorTests
     }
 
     [Fact]
+    public void Generate_GIFはJPEGのサムネイルになり_アニメーションは最初のコマを使う()
+    {
+        var animated = TestImages.Gif(800, 400, (255, 0, 0), (0, 0, 255));
+
+        var thumbnail = Generator.Generate(animated);
+
+        Assert.Equal([0xFF, 0xD8], thumbnail.Data[..2]);
+        Assert.Equal((300, 150), TestImages.SizeOf(thumbnail.Data));
+        var (red, _, blue) = TestImages.PixelAt(thumbnail.Data, 150, 75);
+        Assert.True(red > 200 && blue < 60, $"最初のコマ(赤)になっていない: R={red} B={blue}");
+    }
+
+    [Fact]
+    public void Generate_WebPは_読める環境ではサムネイルになり_読めない環境ではThumbnailGenerationExceptionになる()
+    {
+        var webp = TestImages.WebpOnePixel();
+        try
+        {
+            var thumbnail = Generator.Generate(webp);
+            Assert.Equal([0xFF, 0xD8], thumbnail.Data[..2]);
+        }
+        catch (ThumbnailGenerationException)
+        {
+            // WebP 拡張機能のない環境。壊れた画像と同じく、例外で知らせる(呼び出し側が、表紙を読めないものとして扱う)
+        }
+    }
+
+    [Fact]
     public void Generate_縦長のJPEGも長辺300pxにする()
     {
         var thumbnail = Generator.Generate(TestImages.Jpeg(600, 1000));
@@ -235,13 +263,27 @@ public class ArchiveReaderTests : IDisposable
     }
 
     [Fact]
+    public void Analyze_GIFとWebPだけのアーカイブも_画像として数える()
+    {
+        var path = TestZips.Create(
+            PathOf("gifwebp.zip"),
+            ("p2.webp", TestImages.WebpOnePixel()), ("p1.gif", TestImages.Gif(10, 10, (255, 0, 0))));
+
+        var result = Reader.Analyze(path, Ct);
+
+        Assert.Equal(ArchiveAnalysisStatus.Ready, result.Status);
+        Assert.Equal(2, result.ImageCount);
+        Assert.Equal(["p1.gif", "p2.webp"], result.CoverCandidates);
+    }
+
+    [Fact]
     public void Analyze_画像以外_フォルダ_macOSのメタデータは数えない()
     {
         var jpeg = TestImages.Jpeg(10, 10);
         var path = TestZips.Create(
             PathOf("mixed.cbz"),
             ("folder/", []), ("folder/page2.jpg", jpeg), ("folder/page1.jpg", jpeg),
-            ("readme.txt", [1]), ("cover.gif", [1]), ("__MACOSX/folder/._page1.jpg", jpeg), ("folder/._page2.jpg", jpeg));
+            ("readme.txt", [1]), ("cover.bmp", [1]), ("__MACOSX/folder/._page1.jpg", jpeg), ("folder/._page2.jpg", jpeg));
 
         var result = Reader.Analyze(path, Ct);
 
@@ -253,7 +295,7 @@ public class ArchiveReaderTests : IDisposable
     [Fact]
     public void Analyze_画像がないアーカイブは_Emptyになる()
     {
-        var path = TestZips.Create(PathOf("text.zip"), ("a.txt", [1, 2]), ("b.gif", [1]));
+        var path = TestZips.Create(PathOf("text.zip"), ("a.txt", [1, 2]), ("b.bmp", [1]), ("c.avif", [1]));
 
         var result = Reader.Analyze(path, Ct);
 

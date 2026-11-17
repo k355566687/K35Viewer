@@ -13,7 +13,7 @@ public sealed record ArchiveImageEntry(string FullName, long Length);
 /// </summary>
 public interface IOpenedArchive : IDisposable
 {
-    /// <summary>対応画像（JPEG / PNG）のエントリ。自然順に並んでいる。</summary>
+    /// <summary>対応画像（JPEG / PNG / GIF / WebP）のエントリ。自然順に並んでいる。</summary>
     IReadOnlyList<ArchiveImageEntry> Images { get; }
 
     /// <summary>エントリの内容を全部メモリへ読み込む。maxBytes を超える場合は <see cref="InvalidDataException"/>。</summary>
