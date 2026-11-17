@@ -1,6 +1,6 @@
 ﻿# 画像アーカイブ管理ビューア 内部アーキテクチャ設計書
 
-**文書バージョン:** Ver.0.2.20（39章 RAR / 7z の ZIP への変換を追加。Ver.0.2.19: 38章 RAR / 7z の閲覧を追加。Ver.0.2.18: 36.3・36.4 更新の間の表示を追加。Ver.0.2.17: 37章 ビューアで前後のアーカイブへ移る操作を追加。Ver.0.2.16: 36章 v0.2.0 Phase 14 アプリの更新を追加。Ver.0.2.15: 35.3 復元を、実装した内容に更新。Ver.0.2.14: 35章 v0.2.0 Phase 13 バックアップを追加。Ver.0.2.13: 34章 v0.2.0 Phase 12 確認のオン/オフ・サムネイルのキャッシュの削除を追加。Ver.0.2.12: 33章 v0.2.0 Phase 11 設定画面・外観・表示方式の記憶を追加。Ver.0.2.11: 25.4 に、一覧の取得中に届いた作成結果の扱いを追加）  
+**文書バージョン:** Ver.0.2.21（40章 GIF / WebP の対応を追加。Ver.0.2.20: 39章 RAR / 7z の ZIP への変換を追加。Ver.0.2.19: 38章 RAR / 7z の閲覧を追加。Ver.0.2.18: 36.3・36.4 更新の間の表示を追加。Ver.0.2.17: 37章 ビューアで前後のアーカイブへ移る操作を追加。Ver.0.2.16: 36章 v0.2.0 Phase 14 アプリの更新を追加。Ver.0.2.15: 35.3 復元を、実装した内容に更新。Ver.0.2.14: 35章 v0.2.0 Phase 13 バックアップを追加。Ver.0.2.13: 34章 v0.2.0 Phase 12 確認のオン/オフ・サムネイルのキャッシュの削除を追加。Ver.0.2.12: 33章 v0.2.0 Phase 11 設定画面・外観・表示方式の記憶を追加。Ver.0.2.11: 25.4 に、一覧の取得中に届いた作成結果の扱いを追加）  
 **作成日:** 2026-11-06  
 **更新日:** 2026-11-16  
 **対象:** MVP
@@ -25,7 +25,7 @@
 - UI: WPF
 - DB: SQLite
 - アーカイブ: ZIP / CBZ
-- 画像: JPEG / PNG
+- 画像: JPEG / PNG / GIF / WebP（GIF / WebP は、40章）
 - ZIP基本操作: `System.IO.Compression`
 - 非同期処理: `async` / `await` とキャンセルトークンを基本とする
 
@@ -181,7 +181,7 @@ ZIP内部の具体的な読み書きはInfrastructure層へ委譲する。
 
 - ZIP内画像エントリ一覧取得
 - 自然順ソート
-- JPEG / PNGの読み込み
+- 画像（JPEG / PNG / GIF / WebP）の読み込み
 - 最終閲覧位置の取得・保存
 - 前後画像取得
 
@@ -350,7 +350,7 @@ MVPでは `System.IO.Compression.ZipArchive` を利用する。
 主な機能:
 
 - エントリ列挙
-- JPEG / PNG判定
+- 画像の拡張子の判定（JPEG / PNG / GIF / WebP）
 - エントリStream取得
 - アーカイブ検証
 
@@ -694,7 +694,7 @@ K35Viewer.Tests
 特に次を自動テストまたは結合テスト対象とする。
 
 1. ZIP内画像の自然順ソート
-2. JPEG / PNGエントリ抽出
+2. 画像エントリ抽出（JPEG / PNG / GIF / WebP）
 3. 削除予約状態の追加・解除
 4. 複数削除を1回のZIP再構築で反映
 5. 再構築失敗時に元ZIPが残ること
@@ -706,7 +706,7 @@ K35Viewer.Tests
 
 ## 20. MVP対象外
 - RAR / 7z（v0.2.0 の後に、閲覧だけ対応した。38章）
-- WebP / GIF
+- AVIF / HEIC / JPEG XL など、ほかの画像形式（WebP / GIF は、のちに対応した。40章）
 - PDF
 - 動画
 - Susie Plug-in
@@ -888,7 +888,7 @@ Task<IReadOnlyList<FolderNode>> GetFolderTreeAsync(CancellationToken ct);
 | `ViewerViewModel` | Presentation | 1枚表示、拡大率、全画面、キー操作、閲覧位置の保存 |
 | `MainViewModel` | Presentation | ライブラリ画面とビューア画面の切り替え |
 
-5.4の `ViewerService` の責務のうち、「JPEG / PNGの読み込み」は `PageImageLoader` と `ViewerImageDecoder` が担う。
+5.4の `ViewerService` の責務のうち、「画像の読み込み」は `PageImageLoader` と `ViewerImageDecoder` が担う。
 
 ### 26.2 アーカイブを開いたままにする
 
@@ -1524,7 +1524,7 @@ RAR / CBR と 7z / CB7 を、閲覧だけで扱う（要件定義 19.1）。読�
 | 部品 | 責務 |
 |---|---|
 | `ArchiveFormats` | 対応する拡張子（スキャン、名前変更、DBの `extension`）と、形式の判定（`Detect`）。形式は、ファイルの先頭の署名で決め、署名で決まらないとき（読めない、短い、知らない署名）だけ、拡張子で決める |
-| `ArchiveImageFilter` | 画像として扱うエントリの判定（JPEG / PNG。フォルダ、`__MACOSX/`、`._*` を除く）。ZIP と RAR / 7z で共通 |
+| `ArchiveImageFilter` | 画像として扱うエントリの判定（JPEG / PNG / GIF / WebP。フォルダ、`__MACOSX/`、`._*` を除く）。ZIP と RAR / 7z で共通 |
 | `ArchiveReader` | 入口（`IArchiveReader`）。`Detect` が RAR / 7z なら `SharpCompressArchiveReader` へ渡し、それ以外は今までの ZIP の処理 |
 | `SharpCompressArchiveReader` / `OpenedSharpArchive` | RAR / 7z の解析、開く、エントリの読み出し。結果は ZIP と同じ形（`ArchiveAnalysis`、`ArchiveOpenResult`）で返す |
 | `IOpenedArchive.CanModify` / `IsSolid` | 作り直せるか（ZIP だけ true）、ソリッド形式か。既定の実装を置かず、実装ごとに明示する（包むクラスが、中身へ渡し忘れても、コンパイルで分かるように） |
@@ -1597,3 +1597,26 @@ RAR / 7z は閲覧だけ（38章）のため、編集したい場合は ZIP に�
 - 流れ: ID・閲覧位置・解析の結果・サムネイルを引き継ぎ（作り直しの対象にならない）、元のファイルはごみ箱へ、履歴が残る、変換した ZIP は画像を削除できる。CBR は CBZ になる。ごみ箱を使えないときは元を残し、次のスキャンで別のアーカイブになる（変換した ZIP は元のID）。ごみ箱へ移せなかったとき。同じ名前の ZIP があるとき、中身がすでに ZIP のときは、何も変えない。変換に失敗、作成の途中でキャンセルしたときは、元のファイルも記録も変わらず、一時ファイルが残らない
 - 画面: ライブラリで、ZIP には変換を出さず、確認でキャンセルなら何もしない、変換したあとも同じアーカイブが選ばれている。ビューアで、変換すると同じ位置で開き直し、削除予約できる。確認でキャンセルなら開いたまま
 - 実際の RAR（38.7 と同じもの）で、ライブラリとビューアからの変換を、手で確かめた
+## 40. GIF / WebP の対応（Issue #2）
+画像として扱う形式に、GIF と WebP を加えた（要件定義 19.2）。デコードは、これまでと同じ WPF 標準の画像API（WIC）だけで行い、追加のライブラリは入れない。
+### 40.1 変更点
+| 部品 | 内容 |
+|---|---|
+| `ArchiveImageFilter` | 画像として扱う拡張子に、`.gif` と `.webp` を加えた。ZIP（`ArchiveReader`）と RAR / 7z（`SharpCompressArchiveReader`）で共通の判定なので、枚数の数え方、表紙の候補（自然順の先頭3枚）、ビューアに並ぶ画像は、形式によらず同じ流れになる |
+| `ThumbnailGenerator` / `ViewerImageDecoder` | 変更なし。どちらも `BitmapDecoder` が形式を見分けるので、GIF / WebP も、JPEG / PNG と同じく「縮小しながら読む」。サムネイルのキャッシュの出力は、これまでどおり JPEG（`thumbnail_cache.format` は出力の形式で、元の画像の形式ではない） |
+| `ViewerViewModel.BuildImageErrorText` | 画像を読めなかったときの文言。WebP のときだけ、「この環境では WebP を読めない可能性があります」を添える |
+| `ViewerService` | 「画像なし」で開けないときの案内に、対応する形式（JPEG / PNG / GIF / WebP）を出す |
+| `0003_requeue_empty_archives.sql` | 「画像なし」を解析待ちに戻す（DB設計書 13.2） |
+### 40.2 GIF のアニメーション
+`BitmapDecoder.Frames[0]`（最初の1コマ）を使う。サムネイルも、ビューアの表示も、動かさない。アニメーションを動かすかは、将来の課題とする。
+### 40.3 読めない環境の扱い
+WebP は、Windows の「WebP 画像拡張機能」（Store）がない環境では、WIC が読めない。拡張子で数えるため、枚数には数えるが、画像としては読めない。そのときの扱いは、壊れた画像と同じ経路に乗せる（新しい状態は設けない）。
+- サムネイル: 表紙の候補（先頭3枚）を順に試し、すべて読めなければ、サムネイルの状態が `FAILED` になり、枠に「表紙を読めません」と出る（再試行は、アーカイブが変わるまでしない）
+- ビューア: `PageImageLoader` が `ImageDecodeException` を受け、その頁の位置に「画像を読み込めません: 〈エントリ名〉」を出す。WebP には、理由を添える。ほかの頁の閲覧は続けられる。一覧表示の小さなサムネイルは、「読み込めません」になる
+- 自前のデコーダー（ImageSharp、Magick.NET）は入れない。理由: 縮小しながら読む WIC の速さを保つ、配布物を増やさない、信頼できないファイルを読むライブラリを増やさない。AVIF / HEIC / JPEG XL は、手元のファイルで必要になったときに、改めて選ぶ
+### 40.4 テスト
+- 判定: `.gif`、`.webp`（大文字、フォルダの中、`\` の区切り）は画像、`.bmp`、`.avif` は画像ではない
+- 解析: GIF と WebP だけの ZIP が `Ready` になり、枚数と表紙の候補が自然順で返る。画像でない拡張子（`.bmp`、`.avif`）だけなら `Empty`
+- サムネイル: GIF が JPEG のサムネイルになり、アニメーションは最初のコマ（赤）の色になる。WebP は、読める環境ではサムネイルになり、読めない環境では `ThumbnailGenerationException` になる（どちらでも通る。実行する環境に WebP の拡張機能があるかに、結果が左右されないため）
+- 移行: DB設計書 13.2 のとおり
+- 実際の GIF / WebP の入った ZIP で、ライブラリのサムネイルとビューアの表示を、手で確かめた
