@@ -156,6 +156,12 @@ builder.Services.AddSingleton<IThumbnailCacheMaintenance>(sp => sp.GetRequiredSe
 
         // 前回の異常終了などで残った一時ファイルを片付ける（画面の表示を待たせない）
         var maintenance = _host.Services.GetRequiredService<StartupMaintenance>();
+        if (restoreResult.Outcome == RestoreApplyOutcome.Succeeded)
+        {
+            // 復元したDBは古い時点のもの。画面を出す（起動時のスキャンが始まる）前に、新着の印を付けない指定をしておく
+            _host.Services.GetRequiredService<ScanService>().SuppressNewMarkingOnNextScan();
+        }
+
         _host.Services.GetRequiredService<MainWindow>().Show();
         _ = maintenance.RunAsync();
 

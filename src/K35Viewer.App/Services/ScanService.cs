@@ -27,6 +27,9 @@ public sealed partial class ScanService(
 
     private readonly SemaphoreSlim _gate = new(1, 1);
 
+    // 1 のあいだ、次のスキャンは新着の印を付けない（SuppressNewMarkingOnNextScan）
+    private int _suppressNewMarking;
+
     /// <summary>テスト用。管理フォルダを列挙したあと、DBへ反映する前に呼ばれる（その間のアプリ内操作を再現するため）。</summary>
     internal Action<LibraryFolder>? AfterEnumerate { get; set; }
 
@@ -59,6 +62,12 @@ public sealed partial class ScanService(
         return await RunAsync(targets, null, scanType, ct);
     }
 
+    /// <summary>
+    /// 次の1回のスキャンでは、新しく見つかったアーカイブに「新着」の印を付けない（バックアップから復元した直後に呼ぶ。
+    /// 復元したDBは古い時点のもので、そのあとに増えたファイルが、すべて新着になってしまうため）。
+    /// </summary>
+    public void SuppressNewMarkingOnNextScan() => Volatile.Write(ref _suppressNewMarking, 1);
+
     public void Dispose() => _gate.Dispose();
 
     private async Task<ScanSummary> RunAsync(
@@ -78,6 +87,9 @@ public sealed partial class ScanService(
                     scans.StartAsync(connection, transaction, scanType, scanRunLibraryId, UnixTime.Now(), token),
                 ct);
 
+            // 復元の直後のスキャンは、新着の印を付けない（古いバックアップを戻したときに、ライブラリ全体が新着になるため）
+            var suppressNew = Interlocked.Exchange(ref _suppressNewMarking, 0) != 0;
+
             var totals = new Counts();
             var accessible = 0;
             var leftovers = new List<string>();
@@ -90,7 +102,15 @@ public sealed partial class ScanService(
                     AfterEnumerate?.Invoke(library);
                     var counts = await writer.ExecuteAsync(
                         (connection, transaction, token) =>
-                            ApplyAsync(connection, transaction, library, scanId, tree, token),
+                            ApplyAsync(
+                                connection,
+                                transaction,
+                                library,
+                                scanId,
+                                tree,
+                                // 管理フォルダのはじめてのスキャン（最終スキャン日時がない）では、中身を全部新着にしない
+                                markNew: !suppressNew && library.LastScanAt is not null,
+                                token),
                         ct);
                     totals.Add(counts);
                     leftovers.AddRange(CleanUpTempFiles(tree));
@@ -149,6 +169,7 @@ public sealed partial class ScanService(
         LibraryFolder library,
         long scanId,
         ScanTree tree,
+        bool markNew,
         CancellationToken ct)
     {
         var now = UnixTime.Now();
@@ -240,7 +261,7 @@ public sealed partial class ScanService(
                         continue;
                     }
 
-                    await batch.InsertAsync(folderId, file.FileName, file.FileSize, file.LastWriteTime, scanId, now, ct);
+                    await batch.InsertAsync(folderId, file.FileName, file.FileSize, file.LastWriteTime, scanId, markNew, now, ct);
                     counts.Added++;
                 }
             }

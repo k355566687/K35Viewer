@@ -49,6 +49,20 @@
                         <Image Source="{Binding Thumbnail}"
                                Stretch="Uniform"
                                RenderOptions.BitmapScalingMode="HighQuality" />
+                        <!-- 新着の印。色だけでなく、文字でも示す -->
+                        <Border HorizontalAlignment="Left"
+                                VerticalAlignment="Top"
+                                Margin="6"
+                                Padding="6,1"
+                                CornerRadius="3"
+                                Background="{DynamicResource AccentFillColorDefaultBrush}"
+                                Visibility="{Binding IsNew, Converter={StaticResource BoolToVisibility}}"
+                                AutomationProperties.Name="新着">
+                            <TextBlock Text="新着"
+                                       FontSize="12"
+                                       FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                        </Border>
                     </Grid>
                 </Border>
                 <TextBlock Text="{Binding FileName}"
@@ -95,7 +109,22 @@
 
         <!-- 詳細表示の文字の列。列の幅に収まらない部分は「…」で省略し、全体はツールチップで示す -->
         <DataTemplate x:Key="FileNameCell">
-            <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" ToolTip="{Binding FileName}" />
+            <DockPanel ToolTip="{Binding FileName}">
+                <Border DockPanel.Dock="Left"
+                        Margin="0,0,6,0"
+                        Padding="5,0"
+                        CornerRadius="3"
+                        VerticalAlignment="Center"
+                        Background="{DynamicResource AccentFillColorDefaultBrush}"
+                        Visibility="{Binding IsNew, Converter={StaticResource BoolToVisibility}}"
+                        AutomationProperties.Name="新着">
+                    <TextBlock Text="新着"
+                               FontSize="11"
+                               FontWeight="SemiBold"
+                               Foreground="{DynamicResource TextOnAccentFillColorPrimaryBrush}" />
+                </Border>
+                <TextBlock Text="{Binding FileName}" TextTrimming="CharacterEllipsis" />
+            </DockPanel>
         </DataTemplate>
         <DataTemplate x:Key="LocationCell">
             <TextBlock Text="{Binding LocationText}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Location}" />
@@ -200,6 +229,13 @@
                           MinWidth="0"
                           Margin="10,0,0,0"
                           AutomationProperties.Name="降順で並べ替え" />
+                <CheckBox Content="新着だけ"
+                          IsChecked="{Binding ShowNewOnly}"
+                          VerticalAlignment="Center"
+                          MinWidth="0"
+                          Margin="20,0,0,0"
+                          ToolTip="新しく見つかって、まだ開いていないアーカイブだけを表示します"
+                          AutomationProperties.Name="新着だけを表示" />
                 <TextBlock Text="表示" VerticalAlignment="Center" Margin="20,0,6,0" />
                 <!-- テーマの既定の最小幅（120）では、選択肢の間が大きく空くため詰める -->
                 <RadioButton Content="詳細"
@@ -225,6 +261,12 @@
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
+                    <Button Content="新着を既読に"
+                            Command="{Binding MarkAllReadCommand}"
+                            Padding="12,3"
+                            Margin="0,0,6,0"
+                            ToolTip="選んでいるフォルダ（「すべて」なら全部）の新着の印を、すべて外します"
+                            AutomationProperties.Name="新着をすべて既読にする" />
                     <Button Content="再スキャン"
                             Command="{Binding RescanCommand}"
                             Padding="12,3"

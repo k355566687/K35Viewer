@@ -59,6 +59,7 @@ public sealed partial class MainViewModel : ObservableObject
         _logger = logger;
 
         Library.OpenRequested += OnOpenRequested;
+        Viewer.ArchiveOpened += (_, archiveId) => Library.MarkRead(archiveId);
         Viewer.CloseRequested += OnCloseRequested;
         Viewer.NavigateArchiveRequested += OnNavigateArchiveRequested;
         Viewer.DeleteBlocked += (_, message) => _notifications.ShowInfo(message);

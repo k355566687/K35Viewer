@@ -73,6 +73,12 @@ public sealed partial class ViewerViewModel(
     private double _viewportHeight;
     private double _dpiScale = 1.0;
 
+    /// <summary>
+    /// アーカイブを開いた（引数は Archive ID）。「新着」の印は、開くときにDBから外している。
+    /// 呼び出し側（<see cref="MainViewModel"/>）が、ライブラリの一覧の表示から、印を外す。
+    /// </summary>
+    public event EventHandler<long>? ArchiveOpened;
+
     /// <summary>ライブラリへ戻る操作が行われた（Esc、戻るボタン）。画面の切り替えは呼び出し側が行う。</summary>
     public event EventHandler? CloseRequested;
 
@@ -263,6 +269,7 @@ public sealed partial class ViewerViewModel(
         }
 
         _session = session;
+        ArchiveOpened?.Invoke(this, archiveId);
         _loader = new PageImageLoader(session, decoder);
         _thumbnailSource = new PageThumbnailSource(session, thumbnailGenerator);
         _positionSaveSuppressed = false;

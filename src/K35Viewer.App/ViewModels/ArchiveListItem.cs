@@ -51,6 +51,21 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
     /// <summary>アーカイブのフルパス（保存場所とファイル名）。</summary>
     public string FullPath => _summary.FullPath;
 
+    /// <summary>新しく見つかって、まだ開いていない（「新着」の印がある）。</summary>
+    public bool IsNew => _summary.IsNew;
+
+    /// <summary>「新着」の印を外す（開いたとき）。</summary>
+    public void MarkRead()
+    {
+        if (!_summary.IsNew)
+        {
+            return;
+        }
+
+        _summary = _summary with { IsNew = false };
+        OnPropertyChanged(nameof(IsNew));
+    }
+
     /// <summary>選択されているか。サムネイル表示で、選択を示す枠と背景に使う。詳細表示の選択は、一覧の選択と同期する。</summary>
     public bool IsSelected
     {

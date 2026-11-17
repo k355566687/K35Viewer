@@ -57,6 +57,7 @@ public sealed partial class ViewerService(
                     InitialIndex(info, archive.Images),
                     new ArchiveFileState(state.FileSize, state.LastWriteTime));
                 LogOpened(logger, info.Id, session.Count, session.CurrentIndex);
+                await ClearNewAsync(info.Id);
                 return new ViewerOpenResult(session, null);
 
             case ArchiveAnalysisStatus.Empty:
@@ -93,6 +94,24 @@ public sealed partial class ViewerService(
             (connection, transaction, token) =>
                 archives.UpdateLastViewAsync(connection, transaction, archiveId, entry, index, UnixTime.Now(), token),
             ct);
+    }
+
+    /// <summary>
+    /// アーカイブを開いたので、「新着」の印を外す（Issue #16）。印を外せなくても、閲覧は妨げない。
+    /// 開いた時点で外す（最初の頁を表示するまで、閲覧位置を保存するまでは待たない）。
+    /// </summary>
+    private async Task ClearNewAsync(long archiveId)
+    {
+        try
+        {
+            _ = await writer.ExecuteAsync(
+                (connection, transaction, token) => archives.ClearNewAsync(connection, transaction, archiveId, token),
+                CancellationToken.None);
+        }
+        catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
+        {
+            LogClearNewFailed(logger, ex, archiveId);
+        }
     }
 
     /// <summary>前回の閲覧位置が有効（画像エントリが存在する）ならその位置、無効なら先頭。</summary>
@@ -132,6 +151,9 @@ public sealed partial class ViewerService(
 
     [LoggerMessage(Level = LogLevel.Information, Message = "アーカイブを開きました。ArchiveId={Id} 画像数={Count} 開始位置={Index}")]
     private static partial void LogOpened(ILogger logger, long id, int count, int index);
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "「新着」の印を外せませんでした。ArchiveId={Id}")]
+    private static partial void LogClearNewFailed(ILogger logger, Exception exception, long id);
 
     [LoggerMessage(Level = LogLevel.Warning, Message = "アーカイブを開けませんでした。ArchiveId={Id} ErrorCode={Code}")]
     private static partial void LogOpenFailed(ILogger logger, long id, string? code);
