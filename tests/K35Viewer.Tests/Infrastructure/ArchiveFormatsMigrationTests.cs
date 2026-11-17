@@ -15,6 +15,8 @@ public class ArchiveFormatsMigrationTests
 
     private static IReadOnlyList<Migration> OnlyFirst => [.. All.Where(m => m.Version <= 1)];
 
+    private static IReadOnlyList<Migration> UpToSecond => [.. All.Where(m => m.Version <= 2)];
+
     private static async Task<string> ScalarStringAsync(SqliteConnection connection, string sql)
     {
         await using var command = connection.CreateCommand();
@@ -89,9 +91,10 @@ public class ArchiveFormatsMigrationTests
             FROM (SELECT * FROM archives ORDER BY id)
             """);
 
-        var version = await db.Runner.MigrateAsync(connection, All, Ct);
+        // 0002 だけを確かめる（0003 は EMPTY の行の状態を変えるため、別のテストで確かめる）
+        var version = await db.Runner.MigrateAsync(connection, UpToSecond, Ct);
 
-        Assert.Equal(All.Max(m => m.Version), version);
+        Assert.Equal(2, version);
         var after = await ScalarStringAsync(connection, """
             SELECT group_concat(id || '|' || folder_id || '|' || file_name || '|' || extension || '|' || file_size || '|' || last_write_time || '|' ||
                    IFNULL(image_count, 'n') || '|' || IFNULL(first_image_entry, 'n') || '|' || IFNULL(last_view_entry, 'n') || '|' ||
@@ -185,6 +188,24 @@ public class ArchiveFormatsMigrationTests
         Assert.Equal(1, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM parent")); // 取り消された
         Assert.Equal(1, await MigrationRunner.GetSchemaVersionAsync(connection, Ct)); // 版も進まない
         Assert.Equal(1, await TempDatabase.ScalarLongAsync(connection, "PRAGMA foreign_keys")); // オンに戻っている
+    }
+
+    [Fact]
+    public async Task 画像なしのアーカイブだけが_解析待ちに戻る()
+    {
+        using var db = new TempDatabase();
+        await using var connection = await db.OpenAsync();
+        _ = await db.Runner.MigrateAsync(connection, UpToSecond, Ct);
+        await SeedAsync(connection);
+
+        var version = await db.Runner.MigrateAsync(connection, All, Ct);
+
+        Assert.Equal(3, version);
+        Assert.Equal("PENDING", await ScalarStringAsync(connection, "SELECT analysis_status FROM archives WHERE id = 3")); // EMPTY だったもの
+        Assert.Equal("READY", await ScalarStringAsync(connection, "SELECT analysis_status FROM archives WHERE id = 1"));
+        Assert.Equal("BROKEN", await ScalarStringAsync(connection, "SELECT analysis_status FROM archives WHERE id = 2"));
+        Assert.Equal("こわれている", await ScalarStringAsync(connection, "SELECT error_message FROM archives WHERE id = 2")); // ほかの行の内容は変わらない
+        Assert.Equal(1, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM thumbnail_cache WHERE archive_id = 1"));
     }
 
     [Fact]

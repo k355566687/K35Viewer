@@ -103,10 +103,12 @@ public static class ArchiveFormats
 /// <summary>アーカイブの中の、画像として扱うエントリの判定（形式によらず共通）。</summary>
 public static class ArchiveImageFilter
 {
-    private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png"];
+    // GIF は最初の1枚を静止画として扱う。WebP は、Windows の WebP 拡張機能がない環境では読めない
+    // （枚数には数えるが、サムネイルとビューアには「読めません」と出る）
+    private static readonly string[] SupportedExtensions = [".jpg", ".jpeg", ".png", ".gif", ".webp"];
 
     /// <summary>
-    /// アーカイブの中のエントリの名前（区切りは、/ でも \ でもよい）が、JPEG / PNG の画像か。
+    /// アーカイブの中のエントリの名前（区切りは、/ でも \ でもよい）が、JPEG / PNG / GIF / WebP の画像か。
     /// フォルダ（末尾が区切り）と、macOS のメタデータ（__MACOSX、._*）は除く。
     /// </summary>
     public static bool IsSupportedImage(string entryName)

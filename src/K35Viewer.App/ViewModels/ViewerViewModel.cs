@@ -1012,7 +1012,7 @@ public sealed partial class ViewerViewModel(
             IsLoading = false;
             ErrorText = page.Error is null
                 ? string.Empty
-                : string.Create(CultureInfo.CurrentCulture, $"画像を読み込めません: {session.Entries[index].FullName}");
+                : BuildImageErrorText(session.Entries[index].FullName);
             CurrentImage = page.Image;
             RecalculateDisplay();
             ScheduleSave();
@@ -1081,6 +1081,15 @@ public sealed partial class ViewerViewModel(
     }
 
     private static string FormatPercent(double scale) => scale.ToString("P0", CultureInfo.CurrentCulture);
+
+    /// <summary>画像を読めなかったときの表示。WebP は、Windows の拡張機能がない環境では読めないため、理由を添える。</summary>
+    private static string BuildImageErrorText(string entryName)
+    {
+        var text = string.Create(CultureInfo.CurrentCulture, $"画像を読み込めません: {entryName}");
+        return entryName.EndsWith(".webp", StringComparison.OrdinalIgnoreCase)
+            ? text + "\n(この環境では WebP を読めない可能性があります)"
+            : text;
+    }
 
     private void ScheduleSave()
     {

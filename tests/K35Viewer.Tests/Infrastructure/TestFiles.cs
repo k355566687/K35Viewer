@@ -31,6 +31,25 @@ internal static class TestImages
             width,
             height);
 
+    /// <summary>単色のGIF。色を2つ渡すと、2コマのアニメーション(1コマ目 → 2コマ目)になる。</summary>
+    public static byte[] Gif(int width, int height, (byte R, byte G, byte B) first, (byte R, byte G, byte B)? second = null)
+    {
+        var encoder = new GifBitmapEncoder();
+        foreach (var (r, g, b) in second is { } next ? new[] { first, next } : [first])
+        {
+            var bgra = Pixels(width, height, (_, _) => (r, g, b, (byte)255));
+            encoder.Frames.Add(BitmapFrame.Create(BitmapSource.Create(width, height, 96, 96, PixelFormats.Bgra32, null, bgra, width * 4)));
+        }
+
+        using var stream = new MemoryStream();
+        encoder.Save(stream);
+        return stream.ToArray();
+    }
+
+    /// <summary>1x1 の WebP(Windows の WebP 拡張機能がある環境でだけ読める。WPF には WebP のエンコーダーがない)。</summary>
+    public static byte[] WebpOnePixel() =>
+        Convert.FromBase64String("UklGRiIAAABXRUJQVlA4IBYAAAAwAQCdASoBAAEADsD+JaQAA3AAAAAA");
+
     /// <summary>左半分が完全に透明、右半分が不透明な赤のPNG。</summary>
     public static byte[] PngHalfTransparent(int width, int height) =>
         Encode(

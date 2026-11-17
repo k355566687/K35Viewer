@@ -60,7 +60,7 @@ public sealed partial class ViewerService(
                 return new ViewerOpenResult(session, null);
 
             case ArchiveAnalysisStatus.Empty:
-                return Fail(Format($"「{info.FileName}」には表示できる画像（JPEG / PNG）がありません"), warning: true);
+                return Fail(Format($"「{info.FileName}」には表示できる画像（JPEG / PNG / GIF / WebP）がありません"), warning: true);
 
             case ArchiveAnalysisStatus.Unsupported:
                 return Fail(Format($"「{info.FileName}」は暗号化されているため開けません"), warning: true);
