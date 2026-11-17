@@ -17,6 +17,8 @@ public class ArchiveFormatsMigrationTests
 
     private static IReadOnlyList<Migration> UpToSecond => [.. All.Where(m => m.Version <= 2)];
 
+    private static IReadOnlyList<Migration> UpToThird => [.. All.Where(m => m.Version <= 3)];
+
     private static async Task<string> ScalarStringAsync(SqliteConnection connection, string sql)
     {
         await using var command = connection.CreateCommand();
@@ -198,7 +200,7 @@ public class ArchiveFormatsMigrationTests
         _ = await db.Runner.MigrateAsync(connection, UpToSecond, Ct);
         await SeedAsync(connection);
 
-        var version = await db.Runner.MigrateAsync(connection, All, Ct);
+        var version = await db.Runner.MigrateAsync(connection, UpToThird, Ct);
 
         Assert.Equal(3, version);
         Assert.Equal("PENDING", await ScalarStringAsync(connection, "SELECT analysis_status FROM archives WHERE id = 3")); // EMPTY だったもの
@@ -206,6 +208,23 @@ public class ArchiveFormatsMigrationTests
         Assert.Equal("BROKEN", await ScalarStringAsync(connection, "SELECT analysis_status FROM archives WHERE id = 2"));
         Assert.Equal("こわれている", await ScalarStringAsync(connection, "SELECT error_message FROM archives WHERE id = 2")); // ほかの行の内容は変わらない
         Assert.Equal(1, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM thumbnail_cache WHERE archive_id = 1"));
+    }
+
+    [Fact]
+    public async Task 新着の列は_既存の行では0になり_0か1しか入らない()
+    {
+        using var db = new TempDatabase();
+        await using var connection = await db.OpenAsync();
+        _ = await db.Runner.MigrateAsync(connection, UpToThird, Ct);
+        await SeedAsync(connection);
+
+        var version = await db.Runner.MigrateAsync(connection, All, Ct);
+
+        Assert.Equal(4, version);
+        Assert.Equal(0, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives WHERE is_new <> 0")); // 更新の直後に、全部が新着にならない
+        Assert.Equal(3, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives"));
+        _ = await Assert.ThrowsAsync<SqliteException>(() => TempDatabase.ExecuteAsync(
+            connection, "UPDATE archives SET is_new = 2 WHERE id = 1"));
     }
 
     [Fact]

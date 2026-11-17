@@ -49,6 +49,11 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
             parameters.Add(("$folder", folderId));
         }
 
+        if (query.NewOnly)
+        {
+            conditions.Add("a.is_new = 1");
+        }
+
         var terms = (query.SearchText ?? string.Empty)
             .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         for (var i = 0; i < terms.Length; i++)
@@ -86,7 +91,7 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         // サムネイルは READY のほか、再生成待ち(STALE)の間も古い画像を表示し続ける
         var listSql =
             $"{cte} SELECT a.id, a.file_name, f.full_path, a.file_size, a.last_write_time, a.image_count, a.analysis_status, " +
-            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status, lf.path " +
+            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status, lf.path, a.is_new " +
             "FROM archives a JOIN folders f ON a.folder_id = f.id " +
             "JOIN library_folders lf ON f.library_folder_id = lf.id " +
             $"LEFT JOIN thumbnail_cache t ON t.archive_id = a.id WHERE {where} " +
@@ -117,7 +122,8 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
                     reader.GetString(6),
                     reader.GetNullableString(7),
                     reader.GetNullableString(8),
-                    reader.GetString(9)));
+                    reader.GetString(9),
+                    reader.GetInt64(10) != 0));
             }
         }
 
@@ -268,6 +274,45 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
             ("$index", index),
             ("$now", now));
         await command.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>
+    /// 「新着」の印を外す（アーカイブを開いたとき）。印がなければ何もしない（更新日時も変えない）。
+    /// 外したときは true。
+    /// </summary>
+    public async Task<bool> ClearNewAsync(
+        SqliteConnection connection, SqliteTransaction transaction, long id, CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            "UPDATE archives SET is_new = 0 WHERE id = $id AND is_new = 1",
+            ("$id", id));
+        return await command.ExecuteNonQueryAsync(ct) > 0;
+    }
+
+    /// <summary>
+    /// 「新着」の印を、まとめて外す（既読にする）。folderId が null なら、すべてのアーカイブ。
+    /// 指定した場合は、そのフォルダ自身と配下のすべてのサブフォルダ（一覧の絞り込みと同じ範囲）。外した件数を返す。
+    /// </summary>
+    public async Task<int> ClearAllNewAsync(
+        SqliteConnection connection, SqliteTransaction transaction, long? folderId, CancellationToken ct)
+    {
+        await using var command = folderId is { } id
+            ? SqlHelper.CreateCommand(
+                connection,
+                transaction,
+                """
+                WITH RECURSIVE sub(id) AS (
+                    SELECT $folder
+                    UNION ALL
+                    SELECT f.id FROM folders f JOIN sub s ON f.parent_folder_id = s.id)
+                UPDATE archives SET is_new = 0
+                 WHERE is_new = 1 AND folder_id IN (SELECT id FROM sub)
+                """,
+                ("$folder", id))
+            : SqlHelper.CreateCommand(connection, transaction, "UPDATE archives SET is_new = 0 WHERE is_new = 1");
+        return await command.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>
@@ -484,10 +529,10 @@ public sealed class ArchiveBatch : IDisposable
             transaction,
             """
             INSERT INTO archives (folder_id, file_name, extension, file_size, last_write_time,
-                                  analysis_status, availability_status, last_seen_scan_id, created_at, updated_at)
-            VALUES ($folder, $name, $ext, $size, $mtime, 'PENDING', 'AVAILABLE', $scan, $now, $now)
+                                  analysis_status, availability_status, last_seen_scan_id, is_new, created_at, updated_at)
+            VALUES ($folder, $name, $ext, $size, $mtime, 'PENDING', 'AVAILABLE', $scan, $new, $now, $now)
             """);
-        AddParameters(_insert, "$folder", "$name", "$ext", "$size", "$mtime", "$scan", "$now");
+        AddParameters(_insert, "$folder", "$name", "$ext", "$size", "$mtime", "$scan", "$new", "$now");
 
         _updateChanged = SqlHelper.CreateCommand(
             connection,
@@ -526,8 +571,16 @@ public sealed class ArchiveBatch : IDisposable
         AddParameters(_markMissing, "$id", "$now");
     }
 
+    /// <summary>新しいアーカイブを登録する。isNew が true なら、「新着」の印を付ける（Issue #16）。</summary>
     public Task InsertAsync(
-        long folderId, string fileName, long fileSize, long lastWriteTime, long scanId, long now, CancellationToken ct)
+        long folderId,
+        string fileName,
+        long fileSize,
+        long lastWriteTime,
+        long scanId,
+        bool isNew,
+        long now,
+        CancellationToken ct)
     {
         var extension = ArchiveFormats.ToDatabaseExtension(Path.GetExtension(fileName));
         return Run(
@@ -539,6 +592,7 @@ public sealed class ArchiveBatch : IDisposable
             ("$size", fileSize),
             ("$mtime", lastWriteTime),
             ("$scan", scanId),
+            ("$new", isNew ? 1 : 0),
             ("$now", now));
     }
 

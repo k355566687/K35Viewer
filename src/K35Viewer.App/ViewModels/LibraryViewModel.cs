@@ -123,6 +123,10 @@ public sealed partial class LibraryViewModel(
     [ObservableProperty]
     private string _searchText = string.Empty;
 
+    /// <summary>true なら、「新着」の印のあるアーカイブだけを表示する（Issue #16）。</summary>
+    [ObservableProperty]
+    private bool _showNewOnly;
+
     [ObservableProperty]
     private SortOption _selectedSortOption = AllSortOptions[0];
 
@@ -230,6 +234,42 @@ public sealed partial class LibraryViewModel(
     {
         await ReloadAsync();
         StartThumbnailProcessing();
+    }
+
+    /// <summary>
+    /// アーカイブを開いた（ビューアで表示した）ときに呼ぶ。DBの「新着」の印は、開くときに外している。
+    /// 一覧に出ている行の印を外して、表示へ反映する（一覧は取得し直さない）。
+    /// </summary>
+    public void MarkRead(long archiveId)
+    {
+        ArchiveListItem? item;
+        lock (_itemsLock)
+        {
+            _ = _itemsById.TryGetValue(archiveId, out item);
+        }
+
+        item?.MarkRead();
+    }
+
+    /// <summary>
+    /// 「新着」の印を、まとめて外す（既読にする）。今選んでいるフォルダとその配下が対象で、「すべて」を選んでいるときは全部。
+    /// </summary>
+    [RelayCommand]
+    private async Task MarkAllReadAsync()
+    {
+        try
+        {
+            _ = await library.MarkAllReadAsync(_selectedFolderId, _cts.Token);
+            await RefreshArchivesAsync(null);
+        }
+        catch (OperationCanceledException)
+        {
+            // アプリ終了中
+        }
+        catch (Exception ex)
+        {
+            LogQueryFailed(logger, ex);
+        }
     }
 
     /// <summary>ツリーで項目が選択されたときにViewから呼ばれる。</summary>
@@ -678,6 +718,8 @@ public sealed partial class LibraryViewModel(
 
     partial void OnIsDescendingChanged(bool value) => _ = RefreshArchivesAsync(null);
 
+    partial void OnShowNewOnlyChanged(bool value) => _ = RefreshArchivesAsync(null);
+
     partial void OnArchivesChanged(IReadOnlyList<ArchiveListItem> value) => RebuildThumbnailRows();
 
     partial void OnColumnCountChanged(int value) => RebuildThumbnailRows();
@@ -821,7 +863,8 @@ public sealed partial class LibraryViewModel(
                 _selectedFolderId,
                 SearchText,
                 SelectedSortOption.Key,
-                IsDescending);
+                IsDescending,
+                NewOnly: ShowNewOnly);
             lock (_itemsLock)
             {
                 _updatesDuringQuery = updates;
@@ -900,7 +943,9 @@ public sealed partial class LibraryViewModel(
         }
         else
         {
-            EmptyMessage = TotalCount == 0 ? "該当するアーカイブがありません" : string.Empty;
+            EmptyMessage = TotalCount == 0
+                ? (ShowNewOnly ? "新着のアーカイブはありません" : "該当するアーカイブがありません")
+                : string.Empty;
         }
     }
 

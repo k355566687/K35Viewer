@@ -60,6 +60,15 @@ public sealed partial class LibraryService(
     public Task<IReadOnlyList<LibraryFolderSummary>> GetLibraryFoldersAsync(CancellationToken ct = default) =>
         libraries.GetSummariesAsync(ct);
 
+    /// <summary>
+    /// 「新着」の印を、まとめて外す（既読にする。Issue #16）。folderId が null なら、すべてのアーカイブ。
+    /// 指定した場合は、そのフォルダ自身と配下のすべてのサブフォルダ。外した件数を返す。
+    /// </summary>
+    public Task<int> MarkAllReadAsync(long? folderId, CancellationToken ct = default) =>
+        writer.ExecuteAsync(
+            (connection, transaction, token) => archives.ClearAllNewAsync(connection, transaction, folderId, token),
+            ct);
+
     /// <summary>条件に一致するアーカイブを検索する(UC-03 / UC-04)。ZIP本体は開かず、SQLiteだけで応答する。</summary>
     public Task<PagedResult<ArchiveSummary>> QueryArchivesAsync(ArchiveQuery query, CancellationToken ct = default) =>
         archives.QueryAsync(query, ct);

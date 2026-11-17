@@ -13,7 +13,7 @@ public enum ArchiveSortKey
 /// アーカイブ一覧の検索条件。FolderId が null の場合は全登録フォルダが対象。
 /// 指定した場合は、そのフォルダ自身と配下のすべてのサブフォルダを対象にする。
 /// SearchText は空白区切りで、すべての語がファイル名に含まれるものに一致する(部分一致、AND)。
-/// Offset / Limit が null の場合は全件。
+/// Offset / Limit が null の場合は全件。NewOnly が true の場合は、「新着」の印のあるものだけ。
 /// </summary>
 public sealed record ArchiveQuery(
     long? FolderId = null,
@@ -21,7 +21,8 @@ public sealed record ArchiveQuery(
     ArchiveSortKey SortKey = ArchiveSortKey.FileName,
     bool Descending = false,
     int? Offset = null,
-    int? Limit = null);
+    int? Limit = null,
+    bool NewOnly = false);
 
 /// <summary>
 /// 一覧表示用のアーカイブ情報。ZIP本体を開かずにDBの値だけで組み立てる。
@@ -37,7 +38,8 @@ public sealed record ArchiveSummary(
     string AnalysisStatus,
     string? ThumbnailPath = null,
     string? ThumbnailStatus = null,
-    string? LibraryRootPath = null)
+    string? LibraryRootPath = null,
+    bool IsNew = false)
 {
     public string FullPath => Path.Combine(FolderPath, FileName);
 }
