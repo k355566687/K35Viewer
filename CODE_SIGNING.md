@@ -9,7 +9,7 @@ We are applying to the SignPath Foundation program.
 Planned statement (required by the program, if approved):
 "Free code signing provided by [SignPath.io](https://signpath.io), certificate by [SignPath Foundation](https://signpath.org)"
 
-Status: Pending approval. Releases up to and including v0.2.3 are **not signed**.
+Status: Pending approval. Releases up to and including v0.2.4 are **not signed**.
 
 ### What will be signed
 
