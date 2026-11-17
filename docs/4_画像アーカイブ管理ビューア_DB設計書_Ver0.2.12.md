@@ -1,12 +1,15 @@
 # 画像アーカイブ管理ビューア DB設計書
 
-**文書バージョン:** Ver.0.2.11  
+**文書バージョン:** Ver.0.2.12  
 **作成日:** 2026-11-06  
 **更新日:** 2026-11-16  
 **対象:** MVP  
 **DBMS:** SQLite
 
 ## 1. 修正内容
+### Ver.0.2.12（GIF / WebP の対応に伴う変更。GitHub の Issue #2）
+- 対応画像の拡張子に、`.gif` と `.webp` を加えた。6.3を更新
+- 3番目のマイグレーション（`0003_requeue_empty_archives.sql`）で、`EMPTY` のアーカイブを `PENDING` に戻し、解析し直す。表の定義は変えない。`schema_version` は3になる。13章を更新
 ### Ver.0.2.11（RAR / 7z の ZIP への変換。GitHub の Issue #20）
 - 操作履歴の種別に `ARCHIVE_CONVERT` を追加した（`operation_type` にはCHECKがないため、マイグレーションは要らない）。6.5を更新
 - 変換のDB反映（11.10）を追加した。`schema_version` は2のまま
@@ -237,13 +240,13 @@ scan_runs
 | `analysis_status` | 意味 | `image_count` | `error_code` |
 |---|---|---|---|
 | `PENDING` | 未解析。新規登録時、およびサイズ・更新日時が変わったとき | 前回の値を残す | NULL |
-| `READY` | 対応画像（JPEG / PNG）が1枚以上ある | 画像の数 | NULL |
+| `READY` | 対応画像（JPEG / PNG / GIF / WebP）が1枚以上ある | 画像の数 | NULL |
 | `EMPTY` | ZIPとして正常だが、対応画像がない | 0 | NULL |
 | `BROKEN` | ZIPとして読めない（破損、途中で切れている、空ファイル等） | NULL | `ARCHIVE_BROKEN` |
 | `UNSUPPORTED` | 暗号化されている | NULL | `ARCHIVE_ENCRYPTED` |
 | `ERROR` | ファイルを読めなかった（存在しない、アクセス拒否、I/Oエラー）。一時的な可能性がある | NULL | `FILE_NOT_FOUND` / `ACCESS_DENIED` / `IO_ERROR` |
 
-- 対応画像は拡張子 `.jpg` / `.jpeg` / `.png`（大文字小文字を区別しない）のファイルエントリ。フォルダ、`__MACOSX/` 配下、`._` で始まるファイル（macOSのメタデータ）は数えない
+- 対応画像は拡張子 `.jpg` / `.jpeg` / `.png` / `.gif` / `.webp`（大文字小文字を区別しない）のファイルエントリ。フォルダ、`__MACOSX/` 配下、`._` で始まるファイル（macOSのメタデータ）は数えない
 - `first_image_entry` は、画像エントリを自然順（連続する数字を数値として比べる。`img2` は `img10` より前）に並べた先頭。表紙の候補であり、実際にサムネイルの元にした画像は `thumbnail_cache.source_entry` が示す
 
 ### 6.4 thumbnail_cache
@@ -757,6 +760,7 @@ RAR / 7z を ZIP に変換したとき、同じアーカイブ（Archive ID）�
 |---:|---|---|
 | 1 | `0001_initial.sql` | 初期DDL（8章） |
 | 2 | `0002_archive_formats.sql` | `archives.extension` のCHECKに、`rar`、`cbr`、`7z`、`cb7` を加える（GitHub の Issue #3） |
+| 3 | `0003_requeue_empty_archives.sql` | `analysis_status = 'EMPTY'` の行を `PENDING` に戻す（GitHub の Issue #2） |
 
 ### 13.1 表の作り直し（0002）
 SQLiteは、CHECK制約をあとから変更できないため、SQLite公式の手順で `archives` を作り直す。
@@ -772,3 +776,19 @@ SQLiteは、CHECK制約をあとから変更できないため、SQLite公式の
 - マイグレーションのファイルの先頭に `-- k35:foreign-keys=off` と書くと、`MigrationRunner` が、トランザクションの前に `PRAGMA foreign_keys = OFF` にし、終わったあと（成功・失敗に関わらず）ONに戻す。外部キーの切り替えは、トランザクションの中では効かないため
 - コミットの前に `PRAGMA foreign_key_check` で整合を確かめ、違反があれば、違反した表を示して例外にし、全体を取り消す
 - 移行の前後で、`archives` の行、ID、`thumbnail_cache` などの子の表の行、連番の位置が変わらないことを、テストで確かめている
+
+### 13.2 画像なしの解析し直し（0003）
+GIF / WebP に対応する前に「画像なし（`EMPTY`）」と解析されたアーカイブは、GIF / WebP だけが入っていた可能性がある。`EMPTY` は、サイズと更新日時が変わらない限り、再び解析の対象にならない（`GetPendingProcessingIdsAsync` は `PENDING` と `ERROR`、および `READY` でサムネイルが古いものを拾う）。そのため、移行で一度だけ `PENDING` に戻す。
+
+```sql
+UPDATE archives
+   SET analysis_status = 'PENDING', error_code = NULL, error_message = NULL
+ WHERE analysis_status = 'EMPTY';
+```
+
+- `image_count` は変えない。`PENDING` は前回の値（0）を残す扱い（6.3）で、解析が終わるまで「0」と「作成待ち」が出る
+- `EMPTY` にはサムネイルの行がないため、`thumbnail_cache` は触らない
+- アプリが起動したあとの、サムネイルの作成待ち（`ThumbnailService.ProcessPendingAsync`）が、そのまま解析し直す。専用の処理は要らない
+- 画像のあるアーカイブ（`READY`）は、戻さない。GIF / WebP が混ざっていても、枚数は、ファイルが変わったときに更新される（全アーカイブの再解析が重いため）
+- 対応する画像の形式を、今後も増やすときは、同じように、そのための移行を足す
+- テスト: `EMPTY` だけが `PENDING` に戻り、`READY`・`BROKEN` の行と、サムネイルの行は変わらない
