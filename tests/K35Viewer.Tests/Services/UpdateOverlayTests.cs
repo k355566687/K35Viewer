@@ -178,6 +178,9 @@ public class UpdateOverlayTests
                 .First(t => AutomationProperties.GetName(t) == "更新の進み具合").Text;
             closeButtonEnabledDuring = WpfTestHelper.Descendants<Button>(window)
                 .First(b => AutomationProperties.GetName(b) == "設定を閉じる").IsEnabled;
+            // 項目は、タブの中にある（選んでいないタブの中身は、まだ作られていない）。「アプリ」のタブを選んでから探す
+            WpfTestHelper.Descendants<TabControl>(window).Single().SelectedIndex = 2;
+            WpfTestHelper.Pump();
             contentEnabledDuring = WpfTestHelper.Descendants<Button>(window)
                 .First(b => AutomationProperties.GetName(b) == "更新を確認").IsEnabled;
 
