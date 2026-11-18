@@ -53,4 +53,10 @@ public sealed record AppSettings
     public LibraryViewMode LibraryViewMode { get; init; } = LibraryViewMode.Detail;
 
     public ViewerViewMode ViewerViewMode { get; init; } = ViewerViewMode.SinglePage;
+
+    /// <summary>
+    /// ショートカットを作るかを、すでに利用者に聞いた（要件定義 24.8）。聞くのは一度だけ。
+    /// 古い版のファイルにはない項目なので、更新した最初の起動で、一度だけ聞く。
+    /// </summary>
+    public bool ShortcutPromptShown { get; init; }
 }

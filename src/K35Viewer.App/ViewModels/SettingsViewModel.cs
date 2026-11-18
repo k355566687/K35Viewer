@@ -24,6 +24,8 @@ public sealed partial class SettingsViewModel(
     IAppRestarter restarter,
     UpdateService updates,
     IUpdateDialogs updateDialogs,
+    IShortcutService shortcuts,
+    IShortcutDialogs shortcutDialogs,
     INotificationService notifications,
     ILogger<SettingsViewModel> logger) : ObservableObject, IDisposable
 {
@@ -412,7 +414,148 @@ public sealed partial class SettingsViewModel(
 
         _started = true;
         thumbnailCache.PropertyChanged += OnThumbnailCacheChanged;
-        await Task.WhenAll(RefreshCacheSizeAsync(), RefreshLastBackupAsync());
+        await Task.WhenAll(RefreshCacheSizeAsync(), RefreshLastBackupAsync(), RefreshShortcutsAsync());
+    }
+
+    // ショートカット（要件定義 24.8。GitHub の Issue #23）
+
+    /// <summary>スタートメニューのショートカットの状態の表示。</summary>
+    [ObservableProperty]
+    private string _startMenuShortcutText = "調べています…";
+
+    /// <summary>デスクトップのショートカットの状態の表示。</summary>
+    [ObservableProperty]
+    private string _desktopShortcutText = "調べています…";
+
+    /// <summary>ボタンの文字。作ってあれば「作り直す」。</summary>
+    [ObservableProperty]
+    private string _createStartMenuLabel = "作る";
+
+    [ObservableProperty]
+    private string _createDesktopLabel = "作る";
+
+    /// <summary>ショートカットの項目の下に出す説明（作れない理由、削除のときの案内など）。</summary>
+    [ObservableProperty]
+    private string _shortcutNote = string.Empty;
+
+    private bool _startMenuExists;
+    private bool _desktopExists;
+    private bool _isShortcutBusy;
+
+    private bool CanCreateShortcut() => !_isShortcutBusy && shortcuts.Availability != ShortcutAvailability.UnsuitableExecutable;
+
+    private bool CanRemoveStartMenuShortcut() => !_isShortcutBusy && _startMenuExists;
+
+    private bool CanRemoveDesktopShortcut() => !_isShortcutBusy && _desktopExists;
+
+    /// <summary>スタートメニューにショートカットを作る（あれば、作り直す）。</summary>
+    [RelayCommand(CanExecute = nameof(CanCreateShortcut))]
+    private Task CreateStartMenuShortcutAsync() => CreateShortcutAsync(new ShortcutRequest(true, false));
+
+    /// <summary>デスクトップにショートカットを作る（あれば、作り直す）。</summary>
+    [RelayCommand(CanExecute = nameof(CanCreateShortcut))]
+    private Task CreateDesktopShortcutAsync() => CreateShortcutAsync(new ShortcutRequest(false, true));
+
+    /// <summary>スタートメニューのショートカットを削除する。</summary>
+    [RelayCommand(CanExecute = nameof(CanRemoveStartMenuShortcut))]
+    private Task RemoveStartMenuShortcutAsync() => RemoveShortcutAsync(ShortcutPlace.StartMenu);
+
+    /// <summary>デスクトップのショートカットを削除する。</summary>
+    [RelayCommand(CanExecute = nameof(CanRemoveDesktopShortcut))]
+    private Task RemoveDesktopShortcutAsync() => RemoveShortcutAsync(ShortcutPlace.Desktop);
+
+    private async Task CreateShortcutAsync(ShortcutRequest request)
+    {
+        // 一時的な場所（ZIP の中から直接起動した、など）では、あとで壊れるため、場所を示して確認する
+        if (shortcuts.Availability == ShortcutAvailability.TemporaryLocation
+            && !shortcutDialogs.ConfirmTemporaryLocation(shortcuts.ExecutablePath ?? string.Empty))
+        {
+            return;
+        }
+
+        _isShortcutBusy = true;
+        NotifyShortcutCommands();
+        try
+        {
+            ShortcutMessages.Report(notifications, await shortcuts.CreateAsync(request));
+        }
+        finally
+        {
+            _isShortcutBusy = false;
+            await RefreshShortcutsAsync();
+        }
+    }
+
+    private async Task RemoveShortcutAsync(ShortcutPlace place)
+    {
+        _isShortcutBusy = true;
+        NotifyShortcutCommands();
+        try
+        {
+            var error = shortcuts.Remove(place);
+            if (error is null)
+            {
+                notifications.ShowSuccess($"{ShortcutMessages.PlaceName(place)}のショートカットを削除しました");
+            }
+            else
+            {
+                notifications.ShowError($"{ShortcutMessages.PlaceName(place)}のショートカットを削除できませんでした（{error}）");
+            }
+        }
+        finally
+        {
+            _isShortcutBusy = false;
+            await RefreshShortcutsAsync();
+        }
+    }
+
+    /// <summary>ショートカットの状態を調べ直して、表示とボタンに反映する（テストからも呼ぶ）。</summary>
+    internal async Task RefreshShortcutsAsync()
+    {
+        var startMenu = shortcuts.GetState(ShortcutPlace.StartMenu);
+        var desktop = shortcuts.GetState(ShortcutPlace.Desktop);
+        _startMenuExists = startMenu != ShortcutState.Missing;
+        _desktopExists = desktop != ShortcutState.Missing;
+        StartMenuShortcutText = DescribeShortcut(startMenu);
+        DesktopShortcutText = DescribeShortcut(desktop);
+        CreateStartMenuLabel = startMenu == ShortcutState.Missing ? "作る" : "作り直す";
+        CreateDesktopLabel = desktop == ShortcutState.Missing ? "作る" : "作り直す";
+
+        var notes = new List<string>();
+        switch (shortcuts.Availability)
+        {
+            case ShortcutAvailability.UnsuitableExecutable:
+                notes.Add("35Viewer の実行ファイル（K35Viewer.exe）から起動していないため、ショートカットは作れません。");
+                break;
+            case ShortcutAvailability.TemporaryLocation:
+                notes.Add("今のアプリは、一時的な場所にあります。ここへのショートカットは、あとで使えなくなることがあります。展開したフォルダを、ふだん使う場所へ移してから、作ってください。");
+                break;
+            default:
+                break;
+        }
+
+        if (startMenu == ShortcutState.Stale || desktop == ShortcutState.Stale)
+        {
+            notes.Add("リンク先が今の場所と違うショートカットは、「作り直す」で直せます。");
+        }
+
+        ShortcutNote = string.Join(" ", notes);
+        NotifyShortcutCommands();
+    }
+
+    private static string DescribeShortcut(ShortcutState state) => state switch
+    {
+        ShortcutState.Current => "作ってあります",
+        ShortcutState.Stale => "作ってありますが、リンク先が今の場所と違います",
+        _ => "作っていません",
+    };
+
+    private void NotifyShortcutCommands()
+    {
+        CreateStartMenuShortcutCommand.NotifyCanExecuteChanged();
+        CreateDesktopShortcutCommand.NotifyCanExecuteChanged();
+        RemoveStartMenuShortcutCommand.NotifyCanExecuteChanged();
+        RemoveDesktopShortcutCommand.NotifyCanExecuteChanged();
     }
 
     /// <summary>設定画面を閉じるときに呼ぶ（ライブラリ側の通知の購読をやめる）。</summary>

@@ -8,6 +8,7 @@ using K35Viewer.Infrastructure.Thumbnails;
 using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Infrastructure.Logging;
 using K35Viewer.Infrastructure.Settings;
+using K35Viewer.Infrastructure.Shortcuts;
 using K35Viewer.Infrastructure.Updates;
 using K35Viewer.Services;
 using K35Viewer.ViewModels;
@@ -99,6 +100,13 @@ public partial class App : Application
         builder.Services.AddSingleton<UpdateService>();
         builder.Services.AddSingleton<IUpdateDialogs, WpfUpdateDialogs>();
         builder.Services.AddSingleton<IUpdateLauncher, WpfUpdateLauncher>();
+        builder.Services.AddSingleton<IShortcutService>(sp => new ShortcutService(
+            ShortcutLocations.FromSystem(),
+            Environment.ProcessPath,
+            Path.GetTempPath(),
+            sp.GetRequiredService<ILogger<ShortcutService>>()));
+        builder.Services.AddSingleton<IShortcutDialogs, WpfShortcutDialogs>();
+        builder.Services.AddSingleton<ShortcutFirstRun>();
         builder.Services.AddTransient<SettingsViewModel>();
         builder.Services.AddSingleton<Func<SettingsViewModel>>(sp => sp.GetRequiredService<SettingsViewModel>);
         builder.Services.AddSingleton<IDialogService, WpfDialogService>();
@@ -172,6 +180,10 @@ builder.Services.AddSingleton<IThumbnailCacheMaintenance>(sp => sp.GetRequiredSe
             _host.Services.GetRequiredService<NotificationService>().ShowWarning(
                 "設定のファイルを読めなかったため、初期の設定で起動しました。設定画面で設定し直してください");
         }
+
+        // はじめて起動したときの、ショートカットの確認（要件定義 24.8）。画面が表示されて、落ち着いてから出す
+        var shortcutFirstRun = _host.Services.GetRequiredService<ShortcutFirstRun>();
+        _ = Dispatcher.InvokeAsync(shortcutFirstRun.RunAsync, System.Windows.Threading.DispatcherPriority.ApplicationIdle);
     }
 
     /// <summary>
