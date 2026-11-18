@@ -274,7 +274,8 @@ public sealed partial class SettingsViewModel(
         UpdateProgressPercent = 0;
         IsUpdateProgressIndeterminate = true;
         IsInstallingUpdate = true;
-        var progress = new Progress<UpdateProgress>(OnInstallProgress);
+        // 報告は、画面のスレッドへ、順序を保って届ける（Progress<T> は、コンテキストがないと順序が保証されない。画面を閉じる間際に、古い報告が表示を書き戻さないようにする）
+        var progress = new ContextProgress<UpdateProgress>(SynchronizationContext.Current, OnInstallProgress);
         var launched = false;
         try
         {
