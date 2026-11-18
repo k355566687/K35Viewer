@@ -10,14 +10,23 @@
         WindowStartupLocation="CenterOwner">
     <!--
         設定画面（SCR-03。画面一覧 8.3）。変更は、その場で反映し、保存する（「OK / キャンセル」はない）。
-        見出しで区切った項目を、上から順に並べる。Esc または「閉じる」で閉じる。
+        項目を、タブ（全般、データ、アプリ）に分け、関係する項目を枠で囲って並べる（GitHub の Issue #25）。Esc または「閉じる」で閉じる。
     -->
     <Window.Resources>
         <BooleanToVisibilityConverter x:Key="BoolToVisibility" />
-        <Style x:Key="SectionHeader" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="18" />
+        <!-- 項目の枠（カード）と、その見出し。関係する設定を、1つの枠にまとめる -->
+        <Style x:Key="Card" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource CardBackgroundFillColorDefaultBrush}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource DividerStrokeColorDefaultBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="6" />
+            <Setter Property="Padding" Value="16,12,16,16" />
+            <Setter Property="Margin" Value="0,0,0,12" />
+        </Style>
+        <Style x:Key="CardHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="16" />
             <Setter Property="FontWeight" Value="SemiBold" />
-            <Setter Property="Margin" Value="0,20,0,8" />
+            <Setter Property="Margin" Value="0,0,0,10" />
         </Style>
         <Style x:Key="ItemLabel" TargetType="TextBlock">
             <Setter Property="VerticalAlignment" Value="Center" />
@@ -50,279 +59,325 @@
                     AutomationProperties.Name="設定を閉じる" />
         </Border>
 
-        <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-            <StackPanel Margin="24,4,24,20">
-                <!-- 外観 -->
-                <TextBlock Text="外観" Style="{StaticResource SectionHeader}" />
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="テーマ" Style="{StaticResource ItemLabel}" />
-                    <RadioButton Content="ダーク"
-                                 GroupName="Theme"
-                                 MinWidth="0"
-                                 IsChecked="{Binding IsDarkTheme}"
-                                 AutomationProperties.Name="テーマ: ダーク" />
-                    <RadioButton Content="ライト"
-                                 GroupName="Theme"
-                                 MinWidth="0"
-                                 Margin="16,0,0,0"
-                                 IsChecked="{Binding IsLightTheme}"
-                                 AutomationProperties.Name="テーマ: ライト" />
-                    <RadioButton Content="Windowsの設定に合わせる"
-                                 GroupName="Theme"
-                                 MinWidth="0"
-                                 Margin="16,0,0,0"
-                                 IsChecked="{Binding IsSystemTheme}"
-                                 AutomationProperties.Name="テーマ: Windowsの設定に合わせる" />
-                </StackPanel>
-
-                <!-- 確認 -->
-                <TextBlock Text="確認" Style="{StaticResource SectionHeader}" />
-                <CheckBox Content="アーカイブから離れるとき、削除予約を反映するか確認する"
-                          IsChecked="{Binding ConfirmBeforeLeave}"
-                          AutomationProperties.Name="アーカイブから離れるときの確認" />
-                <TextBlock Style="{StaticResource Note}"
-                           Text="オフにすると、確認せずにアーカイブを更新します。更新できないときは確認します。" />
-                <CheckBox Content="アーカイブを削除するとき、確認する"
-                          Margin="0,12,0,0"
-                          IsChecked="{Binding ConfirmBeforeDelete}"
-                          AutomationProperties.Name="アーカイブを削除するときの確認" />
-                <TextBlock Style="{StaticResource Note}"
-                           Text="ごみ箱を使えない場所での完全な削除は、常に確認します。" />
-                <!-- データ -->
-                <TextBlock Text="データ" Style="{StaticResource SectionHeader}" />
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="保存場所" Style="{StaticResource ItemLabel}" />
-                    <TextBox Grid.Row="0" Grid.Column="1"
-                             Text="{Binding DataFolder, Mode=OneWay}"
-                             Style="{StaticResource PathBox}"
-                             AutomationProperties.Name="アプリのデータの保存場所" />
-                    <Button Grid.Row="0" Grid.Column="2"
-                            Content="フォルダを開く"
-                            Padding="12,4"
-                            Command="{Binding OpenDataFolderCommand}"
-                            AutomationProperties.Name="アプリのデータの保存場所を開く" />
-
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="サムネイルのキャッシュ" Style="{StaticResource ItemLabel}" Margin="0,8,12,0" />
-                    <TextBox Grid.Row="1" Grid.Column="1"
-                             Margin="0,8,8,0"
-                             Text="{Binding ThumbnailsFolder, Mode=OneWay}"
-                             Style="{StaticResource PathBox}"
-                             AutomationProperties.Name="サムネイルのキャッシュの保存場所" />
-                    <Button Grid.Row="1" Grid.Column="2"
-                            Margin="0,8,0,0"
-                            Content="フォルダを開く"
-                            Padding="12,4"
-                            Command="{Binding OpenThumbnailsFolderCommand}"
-                            AutomationProperties.Name="サムネイルのキャッシュの保存場所を開く" />
-                    <TextBlock Grid.Row="2" Grid.Column="0" Text="キャッシュの大きさ" Style="{StaticResource ItemLabel}" Margin="0,8,12,0" />
-                    <TextBlock Grid.Row="2" Grid.Column="1"
-                               Margin="0,8,8,0"
-                               VerticalAlignment="Center"
-                               Text="{Binding CacheSizeText}"
-                               AutomationProperties.Name="サムネイルのキャッシュの大きさ" />
-                    <Button Grid.Row="2" Grid.Column="2"
-                            Margin="0,8,0,0"
-                            Content="キャッシュを削除"
-                            Padding="12,4"
-                            Command="{Binding ClearThumbnailCacheCommand}"
-                            ToolTip="{Binding ClearCacheToolTip}"
-                            ToolTipService.ShowOnDisabled="True"
-                            AutomationProperties.Name="サムネイルのキャッシュを削除" />
-                    <TextBlock Grid.Row="3" Grid.Column="0" Text="バックアップ" Style="{StaticResource ItemLabel}" Margin="0,16,12,0" />
-                    <StackPanel Grid.Row="3" Grid.Column="1" Margin="0,16,8,0" Orientation="Horizontal" VerticalAlignment="Center">
-                        <TextBlock Text="最後のバックアップ:" Margin="0,0,6,0"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
-                        <TextBlock Text="{Binding LastBackupText}"
-                                   AutomationProperties.Name="最後のバックアップ" />
+        <TabControl Margin="16,8,16,0" AutomationProperties.Name="設定の項目">
+            <TabItem Header="全般" AutomationProperties.Name="全般の設定">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="4,12,8,4">
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="外観">
+                            <StackPanel>
+                                <TextBlock Text="外観" Style="{StaticResource CardHeader}" />
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="テーマ" Style="{StaticResource ItemLabel}" />
+                                                    <RadioButton Content="ダーク"
+                                                                 GroupName="Theme"
+                                                                 MinWidth="0"
+                                                                 IsChecked="{Binding IsDarkTheme}"
+                                                                 AutomationProperties.Name="テーマ: ダーク" />
+                                                    <RadioButton Content="ライト"
+                                                                 GroupName="Theme"
+                                                                 MinWidth="0"
+                                                                 Margin="16,0,0,0"
+                                                                 IsChecked="{Binding IsLightTheme}"
+                                                                 AutomationProperties.Name="テーマ: ライト" />
+                                                    <RadioButton Content="Windowsの設定に合わせる"
+                                                                 GroupName="Theme"
+                                                                 MinWidth="0"
+                                                                 Margin="16,0,0,0"
+                                                                 IsChecked="{Binding IsSystemTheme}"
+                                                                 AutomationProperties.Name="テーマ: Windowsの設定に合わせる" />
+                                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="確認">
+                            <StackPanel>
+                                <TextBlock Text="確認" Style="{StaticResource CardHeader}" />
+                                                <CheckBox Content="アーカイブから離れるとき、削除予約を反映するか確認する"
+                                                          IsChecked="{Binding ConfirmBeforeLeave}"
+                                                          AutomationProperties.Name="アーカイブから離れるときの確認" />
+                                                <TextBlock Style="{StaticResource Note}"
+                                                           Text="オフにすると、確認せずにアーカイブを更新します。更新できないときは確認します。" />
+                                                <CheckBox Content="アーカイブを削除するとき、確認する"
+                                                          Margin="0,12,0,0"
+                                                          IsChecked="{Binding ConfirmBeforeDelete}"
+                                                          AutomationProperties.Name="アーカイブを削除するときの確認" />
+                                                <TextBlock Style="{StaticResource Note}"
+                                                           Text="ごみ箱を使えない場所での完全な削除は、常に確認します。" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                    <StackPanel Grid.Row="3" Grid.Column="2" Margin="0,16,0,0" Orientation="Horizontal">
-                        <Button Content="バックアップを作成"
-                                Padding="12,4"
-                                Command="{Binding CreateBackupCommand}"
-                                ToolTip="ライブラリの情報、閲覧位置、操作履歴、設定を、1つのファイルにまとめて保存します"
-                                AutomationProperties.Name="バックアップを作成" />
-                        <Button Content="復元…"
-                                Padding="12,4"
-                                Margin="8,0,0,0"
-                                Command="{Binding RestoreBackupCommand}"
-                                ToolTip="バックアップのファイルを選んで、アプリのデータをその時点に戻します。アプリを再起動します"
-                                AutomationProperties.Name="バックアップから復元" />
-                        <Button Content="フォルダを開く"
-                                Padding="12,4"
-                                Margin="8,0,0,0"
-                                Command="{Binding OpenBackupsFolderCommand}"
-                                AutomationProperties.Name="バックアップの保存場所を開く" />
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="データ" AutomationProperties.Name="データの設定">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="4,12,8,4">
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="保存場所とキャッシュ">
+                            <StackPanel>
+                                <TextBlock Text="保存場所とキャッシュ" Style="{StaticResource CardHeader}" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="保存場所" Style="{StaticResource ItemLabel}" />
+                                                    <TextBox Grid.Row="0" Grid.Column="1"
+                                                             Text="{Binding DataFolder, Mode=OneWay}"
+                                                             Style="{StaticResource PathBox}"
+                                                             AutomationProperties.Name="アプリのデータの保存場所" />
+                                                    <Button HorizontalAlignment="Stretch" Grid.Row="0" Grid.Column="2"
+                                                            Content="フォルダを開く"
+                                                            Padding="12,4"
+                                                            Command="{Binding OpenDataFolderCommand}"
+                                                            AutomationProperties.Name="アプリのデータの保存場所を開く" />
+
+                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="サムネイルのキャッシュ" Style="{StaticResource ItemLabel}" Margin="0,8,12,0" />
+                                                    <TextBox Grid.Row="1" Grid.Column="1"
+                                                             Margin="0,8,8,0"
+                                                             Text="{Binding ThumbnailsFolder, Mode=OneWay}"
+                                                             Style="{StaticResource PathBox}"
+                                                             AutomationProperties.Name="サムネイルのキャッシュの保存場所" />
+                                                    <Button HorizontalAlignment="Stretch" Grid.Row="1" Grid.Column="2"
+                                                            Margin="0,8,0,0"
+                                                            Content="フォルダを開く"
+                                                            Padding="12,4"
+                                                            Command="{Binding OpenThumbnailsFolderCommand}"
+                                                            AutomationProperties.Name="サムネイルのキャッシュの保存場所を開く" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="キャッシュの大きさ" Style="{StaticResource ItemLabel}" Margin="0,8,12,0" />
+                                                    <TextBlock Grid.Row="2" Grid.Column="1"
+                                                               Margin="0,8,8,0"
+                                                               VerticalAlignment="Center"
+                                                               Text="{Binding CacheSizeText}"
+                                                               AutomationProperties.Name="サムネイルのキャッシュの大きさ" />
+                                                    <Button HorizontalAlignment="Stretch" Grid.Row="2" Grid.Column="2"
+                                                            Margin="0,8,0,0"
+                                                            Content="キャッシュを削除"
+                                                            Padding="12,4"
+                                                            Command="{Binding ClearThumbnailCacheCommand}"
+                                                            ToolTip="{Binding ClearCacheToolTip}"
+                                                            ToolTipService.ShowOnDisabled="True"
+                                                            AutomationProperties.Name="サムネイルのキャッシュを削除" />
+                                                </Grid>
+                                                <TextBlock Style="{StaticResource Note}"
+                                                           Text="ライブラリの情報（DB）、設定、ログは「保存場所」に、サムネイルは「サムネイルのキャッシュ」に保存しています。" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="バックアップ">
+                            <StackPanel>
+                                <TextBlock Text="バックアップ" Style="{StaticResource CardHeader}" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="最後のバックアップ" Style="{StaticResource ItemLabel}" />
+                                                    <TextBlock Grid.Row="0" Grid.Column="1"
+                                                               VerticalAlignment="Center"
+                                                               TextWrapping="Wrap"
+                                                               Text="{Binding LastBackupText}"
+                                                               AutomationProperties.Name="最後のバックアップ" />
+
+                                                    <WrapPanel Grid.Row="1" Grid.Column="0" Grid.ColumnSpan="2" Margin="0,8,0,0">
+                                                        <Button Content="バックアップを作成"
+                                                                Padding="12,4"
+                                                                Margin="0,0,8,0"
+                                                                Command="{Binding CreateBackupCommand}"
+                                                                ToolTip="ライブラリの情報、閲覧位置、操作履歴、設定を、1つのファイルにまとめて保存します"
+                                                                AutomationProperties.Name="バックアップを作成" />
+                                                        <Button Content="復元…"
+                                                                Padding="12,4"
+                                                                Margin="0,0,8,0"
+                                                                Command="{Binding RestoreBackupCommand}"
+                                                                ToolTip="バックアップのファイルを選んで、アプリのデータをその時点に戻します。アプリを再起動します"
+                                                                AutomationProperties.Name="バックアップから復元" />
+                                                        <Button Content="フォルダを開く"
+                                                                Padding="12,4"
+                                                                Command="{Binding OpenBackupsFolderCommand}"
+                                                                AutomationProperties.Name="バックアップの保存場所を開く" />
+                                                    </WrapPanel>
+
+                                                    <TextBlock Grid.Row="2" Grid.Column="0" Text="自動バックアップ" Style="{StaticResource ItemLabel}" Margin="0,12,12,0" />
+                                                    <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,12,0,0" Orientation="Horizontal">
+                                                        <TextBlock Text="残す数" VerticalAlignment="Center" Margin="0,0,8,0" />
+                                                        <ComboBox ItemsSource="{Binding AutoBackupKeepChoices}"
+                                                                  SelectedItem="{Binding AutoBackupKeepCount}"
+                                                                  MinWidth="72"
+                                                                  AutomationProperties.Name="自動バックアップを残す数" />
+                                                        <TextBlock Text="個" VerticalAlignment="Center" Margin="6,0,0,0" />
+                                                    </StackPanel>
+                                                </Grid>
+                                                <TextBlock Style="{StaticResource Note}"
+                                                           Text="自動バックアップは、復元や更新の前に、アプリが作ります。手動で作ったものは削除しません。" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                    <TextBlock Grid.Row="4" Grid.Column="0" Text="自動バックアップ" Style="{StaticResource ItemLabel}" Margin="0,8,12,0" />
-                    <StackPanel Grid.Row="4" Grid.Column="1" Grid.ColumnSpan="2" Margin="0,8,0,0" Orientation="Horizontal">
-                        <TextBlock Text="残す数" VerticalAlignment="Center" Margin="0,0,8,0" />
-                        <ComboBox ItemsSource="{Binding AutoBackupKeepChoices}"
-                                  SelectedItem="{Binding AutoBackupKeepCount}"
-                                  MinWidth="72"
-                                  AutomationProperties.Name="自動バックアップを残す数" />
-                        <TextBlock Text="個（復元や更新の前に、アプリが作ります。手動で作ったものは削除しません）"
-                                   VerticalAlignment="Center"
-                                   Margin="8,0,0,0"
-                                   Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                </ScrollViewer>
+            </TabItem>
+            <TabItem Header="アプリ" AutomationProperties.Name="アプリの設定">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="4,12,8,4">
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="ショートカット">
+                            <StackPanel>
+                                <TextBlock Text="ショートカット" Style="{StaticResource CardHeader}" />
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="Auto" />
+                                                        <ColumnDefinition Width="*" />
+                                                        <ColumnDefinition Width="Auto" />
+                                                    </Grid.ColumnDefinitions>
+                                                    <Grid.RowDefinitions>
+                                                        <RowDefinition Height="Auto" />
+                                                        <RowDefinition Height="Auto" />
+                                                    </Grid.RowDefinitions>
+
+                                                    <TextBlock Grid.Row="0" Grid.Column="0" Text="スタートメニュー" Style="{StaticResource ItemLabel}" />
+                                                    <TextBlock Grid.Row="0" Grid.Column="1"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,8,0"
+                                                               TextWrapping="Wrap"
+                                                               Text="{Binding StartMenuShortcutText}"
+                                                               AutomationProperties.Name="スタートメニューのショートカットの状態" />
+                                                    <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal">
+                                                        <Button Content="{Binding CreateStartMenuLabel}"
+                                                                Padding="12,4"
+                                                                MinWidth="80"
+                                                                Command="{Binding CreateStartMenuShortcutCommand}"
+                                                                ToolTip="スタートメニューに、35Viewer のショートカットを作ります"
+                                                                AutomationProperties.Name="スタートメニューにショートカットを作る" />
+                                                        <Button Content="削除"
+                                                                Padding="12,4"
+                                                                Margin="8,0,0,0"
+                                                                Command="{Binding RemoveStartMenuShortcutCommand}"
+                                                                AutomationProperties.Name="スタートメニューのショートカットを削除する" />
+                                                    </StackPanel>
+
+                                                    <TextBlock Grid.Row="1" Grid.Column="0" Text="デスクトップ" Style="{StaticResource ItemLabel}" Margin="0,8,12,0" />
+                                                    <TextBlock Grid.Row="1" Grid.Column="1"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,8,8,0"
+                                                               TextWrapping="Wrap"
+                                                               Text="{Binding DesktopShortcutText}"
+                                                               AutomationProperties.Name="デスクトップのショートカットの状態" />
+                                                    <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0" Orientation="Horizontal">
+                                                        <Button Content="{Binding CreateDesktopLabel}"
+                                                                Padding="12,4"
+                                                                MinWidth="80"
+                                                                Command="{Binding CreateDesktopShortcutCommand}"
+                                                                ToolTip="デスクトップに、35Viewer のショートカットを作ります"
+                                                                AutomationProperties.Name="デスクトップにショートカットを作る" />
+                                                        <Button Content="削除"
+                                                                Padding="12,4"
+                                                                Margin="8,0,0,0"
+                                                                Command="{Binding RemoveDesktopShortcutCommand}"
+                                                                AutomationProperties.Name="デスクトップのショートカットを削除する" />
+                                                    </StackPanel>
+
+                                                </Grid>
+                                                <TextBlock Text="{Binding ShortcutNote}"
+                                                           AutomationProperties.Name="ショートカットについての案内">
+                                                    <TextBlock.Style>
+                                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Note}">
+                                                            <Style.Triggers>
+                                                                <DataTrigger Binding="{Binding ShortcutNote}" Value="">
+                                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                                </DataTrigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </TextBlock.Style>
+                                                </TextBlock>
+                                                <TextBlock Style="{StaticResource Note}"
+                                                           Text="現在の利用者用の場所に作ります（管理者権限は使いません）。アプリの更新をしても、ショートカットはそのまま使えます。展開したフォルダを移したときは、「作り直す」で直せます。タスクバーに置くときは、スタートメニューの「35Viewer」を右クリックして、「タスクバーにピン留めする」を選んでください。" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="アプリの更新">
+                            <StackPanel>
+                                <TextBlock Text="アプリの更新" Style="{StaticResource CardHeader}" />
+                                                <WrapPanel>
+                                                    <TextBlock Text="現在の版" Style="{StaticResource ItemLabel}" />
+                                                    <TextBlock Text="{Binding CurrentVersionText}"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,16,0"
+                                                               AutomationProperties.Name="現在の版" />
+                                                    <Button Content="更新を確認"
+                                                            Padding="12,4"
+                                                            Command="{Binding CheckForUpdateCommand}"
+                                                            ToolTip="GitHub のリリースに、新しい版があるかを確かめます（このボタンを押したときだけ通信します）"
+                                                            AutomationProperties.Name="更新を確認" />
+                                                    <Button Content="変更点を見る"
+                                                            Padding="12,4"
+                                                            Margin="8,0,0,0"
+                                                            Command="{Binding OpenReleaseNotesCommand}"
+                                                            ToolTip="新しい版のリリースのページ（GitHub）を、ブラウザで開きます"
+                                                            ToolTipService.ShowOnDisabled="True"
+                                                            AutomationProperties.Name="新しい版の変更点を見る" />
+                                                    <Button Content="更新する"
+                                                            Padding="12,4"
+                                                            Margin="8,0,0,0"
+                                                            Command="{Binding InstallUpdateCommand}"
+                                                            ToolTip="アプリのデータをバックアップしてから、新しい版をダウンロードして、アプリを再起動して入れ替えます"
+                                                            ToolTipService.ShowOnDisabled="True"
+                                                            AutomationProperties.Name="新しい版へ更新する" />
+                                                    <Button Content="中止"
+                                                            Padding="12,4"
+                                                            Margin="8,0,0,0"
+                                                            Command="{Binding CancelUpdateCommand}"
+                                                            AutomationProperties.Name="確認やダウンロードを中止する">
+                                                        <Button.Style>
+                                                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+                                                                <Setter Property="Visibility" Value="Collapsed" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsUpdateBusy}" Value="True">
+                                                                        <Setter Property="Visibility" Value="Visible" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </Button.Style>
+                                                    </Button>
+                                                </WrapPanel>
+                                                <TextBlock Style="{StaticResource Note}"
+                                                           Text="{Binding UpdateStatusText}"
+                                                           AutomationProperties.Name="更新の状況" />
+                                                <TextBlock Style="{StaticResource Note}"
+                                                           Text="更新の確認とダウンロードのときだけ、GitHub（api.github.com、github.com）と通信します。利用者のデータは送りません。" />
+                            </StackPanel>
+                        </Border>
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="情報">
+                            <StackPanel>
+                                <TextBlock Text="情報" Style="{StaticResource CardHeader}" />
+                                                <StackPanel Orientation="Horizontal">
+                                                    <TextBlock Text="{Binding VersionText}"
+                                                               VerticalAlignment="Center"
+                                                               Margin="0,0,16,0"
+                                                               AutomationProperties.Name="アプリの版" />
+                                                    <Button Content="MIT License"
+                                                            Padding="12,4"
+                                                            Command="{Binding OpenLicenseCommand}"
+                                                            ToolTip="ライセンスのページ（GitHub）をブラウザで開きます"
+                                                            AutomationProperties.Name="ライセンスのページを開く" />
+                                                    <Button Content="GitHub のページ"
+                                                            Padding="12,4"
+                                                            Margin="8,0,0,0"
+                                                            Command="{Binding OpenRepositoryCommand}"
+                                                            ToolTip="35Viewer のリポジトリ（GitHub）をブラウザで開きます"
+                                                            AutomationProperties.Name="GitHub のページを開く" />
+                                                </StackPanel>
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
-                </Grid>
-                <TextBlock Style="{StaticResource Note}"
-                           Text="ライブラリの情報（DB）、設定、ログは「保存場所」に、サムネイルは「サムネイルのキャッシュ」に保存しています。" />
-
-                <!-- ショートカット -->
-                <TextBlock Text="ショートカット" Style="{StaticResource SectionHeader}" />
-                <Grid>
-                    <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="*" />
-                        <ColumnDefinition Width="Auto" />
-                    </Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-
-                    <TextBlock Grid.Row="0" Grid.Column="0" Text="スタートメニュー" Style="{StaticResource ItemLabel}" />
-                    <TextBlock Grid.Row="0" Grid.Column="1"
-                               VerticalAlignment="Center"
-                               Margin="0,0,8,0"
-                               TextWrapping="Wrap"
-                               Text="{Binding StartMenuShortcutText}"
-                               AutomationProperties.Name="スタートメニューのショートカットの状態" />
-                    <StackPanel Grid.Row="0" Grid.Column="2" Orientation="Horizontal">
-                        <Button Content="{Binding CreateStartMenuLabel}"
-                                Padding="12,4"
-                                MinWidth="80"
-                                Command="{Binding CreateStartMenuShortcutCommand}"
-                                ToolTip="スタートメニューに、35Viewer のショートカットを作ります"
-                                AutomationProperties.Name="スタートメニューにショートカットを作る" />
-                        <Button Content="削除"
-                                Padding="12,4"
-                                Margin="8,0,0,0"
-                                Command="{Binding RemoveStartMenuShortcutCommand}"
-                                AutomationProperties.Name="スタートメニューのショートカットを削除する" />
-                    </StackPanel>
-
-                    <TextBlock Grid.Row="1" Grid.Column="0" Text="デスクトップ" Style="{StaticResource ItemLabel}" Margin="0,8,12,0" />
-                    <TextBlock Grid.Row="1" Grid.Column="1"
-                               VerticalAlignment="Center"
-                               Margin="0,8,8,0"
-                               TextWrapping="Wrap"
-                               Text="{Binding DesktopShortcutText}"
-                               AutomationProperties.Name="デスクトップのショートカットの状態" />
-                    <StackPanel Grid.Row="1" Grid.Column="2" Margin="0,8,0,0" Orientation="Horizontal">
-                        <Button Content="{Binding CreateDesktopLabel}"
-                                Padding="12,4"
-                                MinWidth="80"
-                                Command="{Binding CreateDesktopShortcutCommand}"
-                                ToolTip="デスクトップに、35Viewer のショートカットを作ります"
-                                AutomationProperties.Name="デスクトップにショートカットを作る" />
-                        <Button Content="削除"
-                                Padding="12,4"
-                                Margin="8,0,0,0"
-                                Command="{Binding RemoveDesktopShortcutCommand}"
-                                AutomationProperties.Name="デスクトップのショートカットを削除する" />
-                    </StackPanel>
-
-                </Grid>
-                <TextBlock Text="{Binding ShortcutNote}"
-                           AutomationProperties.Name="ショートカットについての案内">
-                    <TextBlock.Style>
-                        <Style TargetType="TextBlock" BasedOn="{StaticResource Note}">
-                            <Style.Triggers>
-                                <DataTrigger Binding="{Binding ShortcutNote}" Value="">
-                                    <Setter Property="Visibility" Value="Collapsed" />
-                                </DataTrigger>
-                            </Style.Triggers>
-                        </Style>
-                    </TextBlock.Style>
-                </TextBlock>
-                <TextBlock Style="{StaticResource Note}"
-                           Text="現在の利用者用の場所に作ります（管理者権限は使いません）。アプリの更新をしても、ショートカットはそのまま使えます。展開したフォルダを移したときは、「作り直す」で直せます。タスクバーに置くときは、スタートメニューの「35Viewer」を右クリックして、「タスクバーにピン留めする」を選んでください。" />
-
-                <!-- アプリの更新 -->
-                <TextBlock Text="アプリの更新" Style="{StaticResource SectionHeader}" />
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="現在の版" Style="{StaticResource ItemLabel}" />
-                    <TextBlock Text="{Binding CurrentVersionText}"
-                               VerticalAlignment="Center"
-                               Margin="0,0,16,0"
-                               AutomationProperties.Name="現在の版" />
-                    <Button Content="更新を確認"
-                            Padding="12,4"
-                            Command="{Binding CheckForUpdateCommand}"
-                            ToolTip="GitHub のリリースに、新しい版があるかを確かめます（このボタンを押したときだけ通信します）"
-                            AutomationProperties.Name="更新を確認" />
-                    <Button Content="変更点を見る"
-                            Padding="12,4"
-                            Margin="8,0,0,0"
-                            Command="{Binding OpenReleaseNotesCommand}"
-                            ToolTip="新しい版のリリースのページ（GitHub）を、ブラウザで開きます"
-                            ToolTipService.ShowOnDisabled="True"
-                            AutomationProperties.Name="新しい版の変更点を見る" />
-                    <Button Content="更新する"
-                            Padding="12,4"
-                            Margin="8,0,0,0"
-                            Command="{Binding InstallUpdateCommand}"
-                            ToolTip="アプリのデータをバックアップしてから、新しい版をダウンロードして、アプリを再起動して入れ替えます"
-                            ToolTipService.ShowOnDisabled="True"
-                            AutomationProperties.Name="新しい版へ更新する" />
-                    <Button Content="中止"
-                            Padding="12,4"
-                            Margin="8,0,0,0"
-                            Command="{Binding CancelUpdateCommand}"
-                            AutomationProperties.Name="確認やダウンロードを中止する">
-                        <Button.Style>
-                            <Style TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-                                <Setter Property="Visibility" Value="Collapsed" />
-                                <Style.Triggers>
-                                    <DataTrigger Binding="{Binding IsUpdateBusy}" Value="True">
-                                        <Setter Property="Visibility" Value="Visible" />
-                                    </DataTrigger>
-                                </Style.Triggers>
-                            </Style>
-                        </Button.Style>
-                    </Button>
-                </StackPanel>
-                <TextBlock Style="{StaticResource Note}"
-                           Text="{Binding UpdateStatusText}"
-                           AutomationProperties.Name="更新の状況" />
-                <TextBlock Style="{StaticResource Note}"
-                           Text="更新の確認とダウンロードのときだけ、GitHub（api.github.com、github.com）と通信します。利用者のデータは送りません。" />
-                <!-- 情報 -->
-                <TextBlock Text="情報" Style="{StaticResource SectionHeader}" />
-                <StackPanel Orientation="Horizontal">
-                    <TextBlock Text="{Binding VersionText}"
-                               VerticalAlignment="Center"
-                               Margin="0,0,16,0"
-                               AutomationProperties.Name="アプリの版" />
-                    <Button Content="MIT License"
-                            Padding="12,4"
-                            Command="{Binding OpenLicenseCommand}"
-                            ToolTip="ライセンスのページ（GitHub）をブラウザで開きます"
-                            AutomationProperties.Name="ライセンスのページを開く" />
-                    <Button Content="GitHub のページ"
-                            Padding="12,4"
-                            Margin="8,0,0,0"
-                            Command="{Binding OpenRepositoryCommand}"
-                            ToolTip="35Viewer のリポジトリ（GitHub）をブラウザで開きます"
-                            AutomationProperties.Name="GitHub のページを開く" />
-                </StackPanel>
-            </StackPanel>
-        </ScrollViewer>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
     </DockPanel>
     <!--
         更新の間（ダウンロード、確認、展開、バックアップ、新しい版の起動）だけ出す表示。画面全体を覆い、下の項目を操作できなくする
