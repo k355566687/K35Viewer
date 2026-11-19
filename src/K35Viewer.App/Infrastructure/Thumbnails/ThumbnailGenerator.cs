@@ -22,15 +22,34 @@ public sealed class ThumbnailGenerator
     /// <summary>JPEG品質(1〜100)。</summary>
     public const int JpegQuality = 80;
 
-    public GeneratedThumbnail Generate(byte[] imageData)
+    /// <summary>
+    /// 切り抜くときに、デコードする画像の長辺の上限（ピクセル）。小さな範囲を切り抜くと、元の画像を大きく展開することになるため、
+    /// メモリを抑える（上限を超える場合は、切り抜いたあとのサムネイルが LongSide より小さくなる）。
+    /// </summary>
+    public const int MaxCropDecodeLongSide = 4096;
+
+    /// <summary>
+    /// サムネイルを作る。<paramref name="crop"/> を指定すると、その範囲（元の画像に対する割合）を切り抜いてから縮小する
+    /// （GitHub の Issue #15）。範囲が正しくなければ、画像の全体を使う。
+    /// </summary>
+    public GeneratedThumbnail Generate(byte[] imageData, K35Viewer.Domain.CoverCrop? crop = null)
     {
         ArgumentNullException.ThrowIfNull(imageData);
 
         try
         {
             var (sourceWidth, sourceHeight) = ReadSize(imageData);
-            var (width, height) = FitInside(sourceWidth, sourceHeight);
-            var scaled = Decode(imageData, width, height);
+            BitmapSource scaled;
+            if (crop is { IsValid: true })
+            {
+                scaled = DecodeCropped(imageData, sourceWidth, sourceHeight, crop);
+            }
+            else
+            {
+                var (width, height) = FitInside(sourceWidth, sourceHeight);
+                scaled = Decode(imageData, width, height);
+            }
+
             var opaque = CompositeOnWhite(scaled);
             return new GeneratedThumbnail(EncodeJpeg(opaque), opaque.PixelWidth, opaque.PixelHeight);
         }
@@ -95,6 +114,26 @@ public sealed class ThumbnailGenerator
         image.EndInit();
         image.Freeze();
         return image;
+    }
+
+    /// <summary>
+    /// 切り抜いた範囲の長辺が LongSide になる縮小率で、画像全体をデコードしてから、範囲を切り抜く
+    /// （拡大はしない。デコードする大きさは <see cref="MaxCropDecodeLongSide"/> まで）。
+    /// </summary>
+    private static CroppedBitmap DecodeCropped(byte[] data, int sourceWidth, int sourceHeight, K35Viewer.Domain.CoverCrop crop)
+    {
+        var (_, _, cropWidth, cropHeight) = crop.ToPixels(sourceWidth, sourceHeight);
+        var scale = Math.Min(1.0, (double)LongSide / Math.Max(cropWidth, cropHeight));
+        scale = Math.Min(scale, (double)MaxCropDecodeLongSide / Math.Max(sourceWidth, sourceHeight));
+        var width = Math.Max(1, (int)Math.Round(sourceWidth * scale));
+        var height = Math.Max(1, (int)Math.Round(sourceHeight * scale));
+        var decoded = Decode(data, width, height);
+
+        // 実際にデコードされた大きさ（丸めで、指定とずれることがある）を基準に、範囲を求め直す
+        var (x, y, w, h) = crop.ToPixels(decoded.PixelWidth, decoded.PixelHeight);
+        var cropped = new CroppedBitmap(decoded, new System.Windows.Int32Rect(x, y, w, h));
+        cropped.Freeze();
+        return cropped;
     }
 
     /// <summary>

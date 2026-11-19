@@ -11,6 +11,12 @@ using Microsoft.Extensions.Logging;
 
 namespace K35Viewer.ViewModels;
 
+/// <summary>
+/// 画像を表紙にする求め（Issue #15）。Index と EntryName は、開いているアーカイブでの画像の位置と名前。
+/// Crop が true なら、切り抜きの画面を出してから表紙にする。
+/// </summary>
+public sealed record CoverRequest(long ArchiveId, int Index, string EntryName, bool Crop);
+
 /// <summary>画像の拡大率の決め方。</summary>
 public enum ZoomMode
 {
@@ -67,6 +73,7 @@ public sealed partial class ViewerViewModel(
     private int _savedIndex = -1;
     private int _anchorIndex;
     private int _markedCurrentIndex = -1;
+    private int _contextIndex = -1;
     private ZoomMode _zoomMode = ZoomMode.Fit;
     private double _customScale = 1.0;
     private double _viewportWidth;
@@ -99,6 +106,12 @@ public sealed partial class ViewerViewModel(
     /// 確認、閉じる、変換、開き直す、の流れは、呼び出し側（<see cref="MainViewModel"/>）が行う。
     /// </summary>
     public event EventHandler? ConvertToZipRequested;
+
+    /// <summary>
+    /// 画像を、アーカイブの表紙にする操作が行われた（右クリックの「この画像を表紙にする」「表紙を切り抜く…」。Issue #15）。
+    /// 切り抜きの画面と、表紙の記録は、呼び出し側（<see cref="MainViewModel"/>）が行う。
+    /// </summary>
+    public event EventHandler<CoverRequest>? CoverRequested;
 
     /// <summary>
     /// 一覧表示で、指定した行（0始まり）を画面に表示してほしい。現在位置が動いたとき、または一覧表示に切り替えたときに発行する。
@@ -275,6 +288,7 @@ public sealed partial class ViewerViewModel(
         _positionSaveSuppressed = false;
         _savedIndex = -1;
         _markedCurrentIndex = -1;
+        _contextIndex = -1;
         _anchorIndex = session.CurrentIndex;
         Pages = [.. session.Entries.Select((entry, index) => new PageItem(index, entry.FullName, _thumbnailSource))];
         ArchiveName = session.ArchiveName;
@@ -460,6 +474,8 @@ public sealed partial class ViewerViewModel(
     /// </summary>
     public void OnPageRightClicked(int index)
     {
+        // 右クリックした画像を覚えておく（「この画像を表紙にする」の対象。複数選択のままでも、右クリックした1枚）
+        _contextIndex = index;
         if (!IsOpen || !IsListView || !IsValid(index) || _selected.Contains(index))
         {
             return;
@@ -626,6 +642,31 @@ public sealed partial class ViewerViewModel(
 
     [RelayCommand]
     private void RequestClose() => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>対象の画像（1枚表示では今の頁、一覧表示では右クリックした画像）を、そのまま表紙にするよう求める。</summary>
+    [RelayCommand]
+    private void SetCover() => RequestCover(crop: false);
+
+    /// <summary>対象の画像を切り抜いて、表紙にするよう求める（切り抜きの画面を出す）。</summary>
+    [RelayCommand]
+    private void CropCover() => RequestCover(crop: true);
+
+    private void RequestCover(bool crop)
+    {
+        if (_session is not { } session)
+        {
+            return;
+        }
+
+        var index = IsListView && IsValid(_contextIndex) ? _contextIndex : session.CurrentIndex;
+        if (!IsValid(index))
+        {
+            return;
+        }
+
+        CoverRequested?.Invoke(
+            this, new CoverRequest(session.ArchiveId, index, session.Entries[index].FullName, crop));
+    }
 
     /// <summary>開いている RAR / 7z を ZIP に変換するよう求める（ZIP を開いているときは、何もしない）。</summary>
     [RelayCommand]

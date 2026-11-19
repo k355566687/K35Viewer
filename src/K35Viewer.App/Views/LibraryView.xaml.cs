@@ -240,6 +240,8 @@ public partial class LibraryView : UserControl
 
     private void OnConvertToZipMenuClick(object sender, RoutedEventArgs e) => Run(ViewModel?.ConvertSelectedToZipCommand);
 
+    private void OnResetCoverMenuClick(object sender, RoutedEventArgs e) => Run(ViewModel?.ResetCoverSelectedCommand);
+
     private void OnShowInExplorerMenuClick(object sender, RoutedEventArgs e) =>
         Run(ViewModel?.ShowSelectedInExplorerCommand);
 

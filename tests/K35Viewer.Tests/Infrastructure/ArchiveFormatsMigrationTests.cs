@@ -19,6 +19,7 @@ public class ArchiveFormatsMigrationTests
 
     private static IReadOnlyList<Migration> UpToThird => [.. All.Where(m => m.Version <= 3)];
     private static IReadOnlyList<Migration> UpToFourth => [.. All.Where(m => m.Version <= 4)];
+    private static IReadOnlyList<Migration> UpToFifth => [.. All.Where(m => m.Version <= 5)];
 
     private static async Task<string> ScalarStringAsync(SqliteConnection connection, string sql)
     {
@@ -237,13 +238,33 @@ public class ArchiveFormatsMigrationTests
         await SeedAsync(connection);
         await TempDatabase.ExecuteAsync(connection, "UPDATE archives SET last_viewed_at = NULL");
         await TempDatabase.ExecuteAsync(connection, "UPDATE archives SET last_viewed_at = 777 WHERE id = 1");
-        var version = await db.Runner.MigrateAsync(connection, All, Ct);
+        var version = await db.Runner.MigrateAsync(connection, UpToFifth, Ct);
         Assert.Equal(5, version);
         Assert.Equal(777, await TempDatabase.ScalarLongAsync(connection, "SELECT last_opened_at FROM archives WHERE id = 1"));
         Assert.Equal(2, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives WHERE last_opened_at IS NULL"));
         Assert.Equal(3, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives"));
     }
 
+    [Fact]
+    public async Task 表紙の列は_既存の行ではNULLになり_切り抜きの範囲は0から1しか入らない()
+    {
+        using var db = new TempDatabase();
+        await using var connection = await db.OpenAsync();
+        _ = await db.Runner.MigrateAsync(connection, UpToFifth, Ct);
+        await SeedAsync(connection);
+        var version = await db.Runner.MigrateAsync(connection, All, Ct);
+        Assert.Equal(6, version);
+        Assert.Equal(3, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives WHERE cover_entry IS NULL AND cover_crop_x IS NULL"));
+        await TempDatabase.ExecuteAsync(
+            connection,
+            "UPDATE archives SET cover_entry = '2.jpg', cover_crop_x = 0, cover_crop_y = 0.25, cover_crop_width = 1, cover_crop_height = 0.5 WHERE id = 1");
+        _ = await Assert.ThrowsAsync<SqliteException>(() => TempDatabase.ExecuteAsync(
+            connection, "UPDATE archives SET cover_crop_x = 1 WHERE id = 1"));
+        _ = await Assert.ThrowsAsync<SqliteException>(() => TempDatabase.ExecuteAsync(
+            connection, "UPDATE archives SET cover_crop_width = 0 WHERE id = 1"));
+        _ = await Assert.ThrowsAsync<SqliteException>(() => TempDatabase.ExecuteAsync(
+            connection, "UPDATE archives SET cover_crop_height = 1.5 WHERE id = 1"));
+    }
     [Fact]
     public void 外部キーを切る移行は_SQLの印で見分ける()
     {

@@ -12,7 +12,7 @@ internal sealed class MainTestHarness : IDisposable
 {
     private readonly LibraryTestContext _ctx;
 
-    public MainTestHarness(LibraryTestContext ctx, ArchiveService? archives = null, SettingsService? settings = null)
+    public MainTestHarness(LibraryTestContext ctx, ArchiveService? archives = null, SettingsService? settings = null, ICoverDialogs? coverDialogs = null)
     {
         _ctx = ctx;
         Notifications = new NotificationService();
@@ -21,7 +21,7 @@ internal sealed class MainTestHarness : IDisposable
             ctx.Library, ctx.Scan, ctx.Thumbnails, ctx.ImageLoader, Dialogs, ctx.Archives, NullLogger<LibraryViewModel>.Instance, settings);
         Viewer = new ViewerViewModel(ctx.Viewer, new ViewerImageDecoder(), new ThumbnailGenerator(), NullLogger<ViewerViewModel>.Instance);
         Toasts = new ToastHostViewModel(Notifications);
-        Main = new MainViewModel(Library, Viewer, Toasts, Notifications, Dialogs, archives ?? ctx.Archives, NullLogger<MainViewModel>.Instance, settings);
+        Main = new MainViewModel(Library, Viewer, Toasts, Notifications, Dialogs, archives ?? ctx.Archives, NullLogger<MainViewModel>.Instance, settings, coverDialogs);
     }
 
     public NotificationService Notifications { get; }

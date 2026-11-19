@@ -103,6 +103,10 @@ public partial class ViewerView : UserControl
 
     private void OnReleaseDeleteClick(object sender, RoutedEventArgs e) => ViewModel?.ReleaseDeleteCommand.Execute(null);
 
+    private void OnSetCoverClick(object sender, RoutedEventArgs e) => ViewModel?.SetCoverCommand.Execute(null);
+
+    private void OnCropCoverClick(object sender, RoutedEventArgs e) => ViewModel?.CropCoverCommand.Execute(null);
+
     // 別の頁に切り替わったら、左上から表示し直す。
     // 画面の終了処理中や別スレッドからの変更でも、終了済みのUIを操作しないようにする
     private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)

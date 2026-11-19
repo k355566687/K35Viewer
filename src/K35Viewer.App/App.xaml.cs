@@ -117,6 +117,7 @@ public partial class App : Application
         builder.Services.AddSingleton(_ => UninstallPlanner.CreateDefault());
         builder.Services.AddSingleton<IUninstallLauncher, WpfUninstallLauncher>();
         builder.Services.AddSingleton<IUninstallDialogs, WpfUninstallDialogs>();
+        builder.Services.AddSingleton<ICoverDialogs, WpfCoverDialogs>();
         builder.Services.AddSingleton<IUninstallService>(sp => new UninstallService(
             sp.GetRequiredService<UninstallPlanner>(),
             sp.GetRequiredService<IShortcutService>(),

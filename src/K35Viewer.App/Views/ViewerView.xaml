@@ -25,6 +25,9 @@
                     <ContextMenu>
                         <MenuItem Header="削除予約" Click="OnReserveDeleteClick" />
                         <MenuItem Header="削除予約を解除" Click="OnReleaseDeleteClick" />
+                        <Separator />
+                        <MenuItem Header="この画像を表紙にする" Click="OnSetCoverClick" />
+                        <MenuItem Header="表紙を切り抜く…" Click="OnCropCoverClick" />
                     </ContextMenu>
                 </Border.ContextMenu>
                 <Border.Style>
@@ -224,6 +227,13 @@
                               SizeChanged="OnPageScrollSizeChanged"
                               ScrollChanged="OnPageScrollChanged">
                     <Grid x:Name="PageHost">
+                        <!-- 表紙の選択（GitHub の Issue #15）。1枚表示では、今の頁が対象 -->
+                        <Grid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="この画像を表紙にする" Click="OnSetCoverClick" />
+                                <MenuItem Header="表紙を切り抜く…" Click="OnCropCoverClick" />
+                            </ContextMenu>
+                        </Grid.ContextMenu>
                         <Image Source="{Binding CurrentImage}"
                                Width="{Binding DisplayWidth}"
                                Height="{Binding DisplayHeight}"

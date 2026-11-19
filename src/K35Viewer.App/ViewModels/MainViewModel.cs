@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using K35Viewer.Domain;
 using K35Viewer.Infrastructure.Settings;
 using K35Viewer.Services;
 using Microsoft.Extensions.Logging;
@@ -35,6 +36,8 @@ public sealed partial class MainViewModel : ObservableObject
     private readonly ArchiveService _archives;
     private readonly ILogger<MainViewModel> _logger;
     private readonly SettingsService? _settings;
+    private readonly ICoverDialogs? _coverDialogs;
+    private bool _isChangingCover;
     private bool _confirmNextLeave;
     private CancellationTokenSource? _updateCts;
     private ViewerSession? _externalChangeWarnedFor;
@@ -48,9 +51,11 @@ public sealed partial class MainViewModel : ObservableObject
         IDialogService dialogs,
         ArchiveService archives,
         ILogger<MainViewModel> logger,
-        SettingsService? settings = null)
+        SettingsService? settings = null,
+        ICoverDialogs? coverDialogs = null)
     {
         _settings = settings;
+        _coverDialogs = coverDialogs;
         Library = library;
         Viewer = viewer;
         Toasts = toasts;
@@ -65,6 +70,18 @@ public sealed partial class MainViewModel : ObservableObject
         Viewer.NavigateArchiveRequested += OnNavigateArchiveRequested;
         Viewer.DeleteBlocked += (_, message) => _notifications.ShowInfo(message);
         Viewer.ConvertToZipRequested += OnConvertToZipRequested;
+        Viewer.CoverRequested += OnCoverRequested;
+        Library.CoverChanged += (_, change) =>
+        {
+            if (change.Succeeded)
+            {
+                _notifications.ShowSuccess(change.Message);
+            }
+            else
+            {
+                _notifications.ShowError(change.Message);
+            }
+        };
         Viewer.PropertyChanged += OnViewerPropertyChanged;
     }
 
@@ -508,6 +525,83 @@ public sealed partial class MainViewModel : ObservableObject
         }
     }
 
+    /// <summary>
+    /// ビューアの画像を、アーカイブの表紙にする（GitHub の Issue #15）。切り抜く場合は、画像を読み出して、切り抜きの画面を出す
+    /// （キャンセルなら、何もしない）。表紙はDBに記録し、サムネイルを作り直す。アーカイブそのものは変えない（RAR / 7z でもできる）。
+    /// 結果は通知する。続けて押された場合、前の処理が終わるまでは、受け付けない。
+    /// </summary>
+    internal async Task ChangeCoverAsync(CoverRequest request)
+    {
+        if (_isChangingCover || _isTransitioning || IsUpdating
+            || Viewer.Session is not { } session || session.ArchiveId != request.ArchiveId)
+        {
+            return;
+        }
+
+        _isChangingCover = true;
+        try
+        {
+            CoverCrop? crop = null;
+            if (request.Crop)
+            {
+                if (_coverDialogs is null)
+                {
+                    return;
+                }
+
+                byte[] data;
+                try
+                {
+                    data = await session.ReadImageAsync(request.Index);
+                }
+                catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException
+                    or ObjectDisposedException or NotSupportedException)
+                {
+                    LogCoverReadFailed(_logger, ex, request.ArchiveId);
+                    _notifications.ShowError("この画像を読み込めないため、表紙にできません");
+                    return;
+                }
+
+                try
+                {
+                    crop = _coverDialogs.PickCrop(data, request.EntryName);
+                }
+                catch (InvalidDataException)
+                {
+                    _notifications.ShowError("この画像を読み込めないため、表紙にできません");
+                    return;
+                }
+
+                if (crop is null)
+                {
+                    return; // キャンセル
+                }
+            }
+
+            var changed = await Library.SetCoverAsync(request.ArchiveId, new CoverSelection(request.EntryName, crop));
+            if (changed)
+            {
+                _notifications.ShowSuccess($"「{session.ArchiveName}」の表紙を変えました");
+            }
+            else
+            {
+                _notifications.ShowError("表紙を変えられませんでした");
+            }
+        }
+        catch (Exception ex)
+        {
+            LogCoverFailed(_logger, ex, request.ArchiveId);
+            _notifications.ShowError("表紙を変えられませんでした");
+        }
+        finally
+        {
+            _isChangingCover = false;
+        }
+    }
+
+    // 画面操作から呼ばれるイベント。例外は ChangeCoverAsync の中で処理する
+    private async void OnCoverRequested(object? sender, CoverRequest request) => await ChangeCoverAsync(request);
+
     private void OnConvertPhase(ArchiveUpdatePhase phase)
     {
         UpdateStatusText = DescribeConvertPhase(phase);
@@ -530,6 +624,12 @@ public sealed partial class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(Title));
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "表紙にする画像を読み出せませんでした。ArchiveId={Id}")]
+    private static partial void LogCoverReadFailed(ILogger logger, Exception exception, long id);
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "表紙を変える処理で、想定外のエラーが起きました。ArchiveId={Id}")]
+    private static partial void LogCoverFailed(ILogger logger, Exception exception, long id);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "前回開いていたアーカイブを続きから開く処理に失敗しました。")]
     private static partial void LogResumeFailed(ILogger logger, Exception exception);

@@ -103,7 +103,7 @@ public class LibraryViewOperationsTests
         Assert.True(highlighted, "選択したカードの背景が変わっていません。");
         Assert.Equal("c.zip", selectedAfterKey);
         Assert.Equal("d.zip", selectedAfterRightClick);
-        Assert.Equal(["開く", "名前を変更 (F2)", "別のフォルダへ移動…", "削除 (Delete)", "ZIP に変換…", "エクスプローラーで表示"], menuHeaders); // 「ZIP に変換…」は、RAR / 7z のときだけ表示される
+        Assert.Equal(["開く", "名前を変更 (F2)", "別のフォルダへ移動…", "削除 (Delete)", "ZIP に変換…", "表紙を自動に戻す", "エクスプローラーで表示"], menuHeaders); // 「ZIP に変換…」は RAR / 7z のとき、「表紙を自動に戻す」は表紙を選んだときだけ表示される
         Assert.Equal(["d.zip"], harness.Dialogs.RenamePrompts);
     }
 
@@ -179,7 +179,7 @@ public class LibraryViewOperationsTests
         Assert.Equal("b.zip", viewSelectionAfterViewModelChange);
         Assert.Equal("c.zip", viewModelSelectionAfterListChange);
         Assert.Equal("d.zip", selectedAfterRightClick);
-        Assert.Equal(["開く", "名前を変更 (F2)", "別のフォルダへ移動…", "削除 (Delete)", "ZIP に変換…", "エクスプローラーで表示"], menuHeaders); // 「ZIP に変換…」は、RAR / 7z のときだけ表示される
+        Assert.Equal(["開く", "名前を変更 (F2)", "別のフォルダへ移動…", "削除 (Delete)", "ZIP に変換…", "表紙を自動に戻す", "エクスプローラーで表示"], menuHeaders); // 「ZIP に変換…」は RAR / 7z のとき、「表紙を自動に戻す」は表紙を選んだときだけ表示される
         Assert.Equal(["d.zip"], harness.Dialogs.RenamePrompts);
         Assert.Equal(["d.zip"], harness.Dialogs.DeleteConfirmations);
     }

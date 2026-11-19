@@ -20,7 +20,8 @@
                         <MenuItem Header="別のフォルダへ移動…" Click="OnMoveMenuClick" />
                         <MenuItem Header="削除 (Delete)" Click="OnDeleteMenuClick" />
                         <MenuItem Header="ZIP に変換…" Click="OnConvertToZipMenuClick"
-                                  Visibility="{Binding CanConvertToZip, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
+                                  Visibility="{Binding CanConvertToZip, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />                        <MenuItem Header="表紙を自動に戻す" Click="OnResetCoverMenuClick"
+                                  Visibility="{Binding HasCustomCover, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
                         <Separator />
                         <MenuItem Header="エクスプローラーで表示" Click="OnShowInExplorerMenuClick" />
                     </ContextMenu>
@@ -441,7 +442,8 @@
                             <MenuItem Header="別のフォルダへ移動…" Click="OnMoveMenuClick" />
                             <MenuItem Header="削除 (Delete)" Click="OnDeleteMenuClick" />
                             <MenuItem Header="ZIP に変換…" Click="OnConvertToZipMenuClick"
-                                      Visibility="{Binding SelectedArchive.CanConvertToZip, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
+                                      Visibility="{Binding SelectedArchive.CanConvertToZip, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />                            <MenuItem Header="表紙を自動に戻す" Click="OnResetCoverMenuClick"
+                                      Visibility="{Binding SelectedArchive.HasCustomCover, Converter={StaticResource BoolToVisibility}, FallbackValue=Collapsed}" />
                             <Separator />
                             <MenuItem Header="エクスプローラーで表示" Click="OnShowInExplorerMenuClick" />
                         </ContextMenu>

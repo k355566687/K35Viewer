@@ -13,7 +13,8 @@ public sealed record ArchiveProcessed(
     string AnalysisStatus,
     int? ImageCount,
     string? ThumbnailPath,
-    string? ThumbnailStatus);
+    string? ThumbnailStatus,
+    bool HasCustomCover = false);
 
 public sealed record ThumbnailProgress(int Completed, int Total);
 
@@ -200,6 +201,30 @@ public sealed partial class ThumbnailService(
             return new ProcessingResult(analysis, null);
         }
 
+        // 利用者が選んだ表紙があれば、それを使う（Issue #15）。その画像がなくなっていれば（削除予約の確定、外部での変更）、
+        // 記録を消して、自動に戻す。読めなかっただけなら（壊れている、一時的なエラー）、記録は残して、今回は自動で作る
+        var coverMissing = false;
+        if (target.Cover is { } chosen)
+        {
+            ct.ThrowIfCancellationRequested();
+            try
+            {
+                var data = reader.ReadEntry(target.FullPath, chosen.Entry, MaxImageBytes, ct);
+                var thumbnail = generator.Generate(data, chosen.Crop);
+                return new ProcessingResult(analysis, new RenderedCover(chosen.Entry, thumbnail));
+            }
+            catch (FileNotFoundException)
+            {
+                coverMissing = true;
+                LogCoverMissing(logger, target.Id, chosen.Entry);
+            }
+            catch (Exception ex) when (ex is ThumbnailGenerationException or InvalidDataException or IOException
+                or NotSupportedException or UnauthorizedAccessException)
+            {
+                LogCoverFailed(logger, target.Id, chosen.Entry, ex.Message);
+            }
+        }
+
         // 先頭の画像が壊れている場合は、次の画像を表紙にする
         string? lastError = null;
         foreach (var entry in analysis.CoverCandidates)
@@ -209,7 +234,7 @@ public sealed partial class ThumbnailService(
             {
                 var data = reader.ReadEntry(target.FullPath, entry, MaxImageBytes, ct);
                 var thumbnail = generator.Generate(data);
-                return new ProcessingResult(analysis, new RenderedCover(entry, thumbnail));
+                return new ProcessingResult(analysis, new RenderedCover(entry, thumbnail), CoverMissing: coverMissing);
             }
             catch (Exception ex) when (ex is ThumbnailGenerationException or InvalidDataException or IOException
                 or NotSupportedException or UnauthorizedAccessException)
@@ -219,7 +244,31 @@ public sealed partial class ThumbnailService(
             }
         }
 
-        return new ProcessingResult(analysis, null, lastError ?? "表紙にできる画像がありません");
+        return new ProcessingResult(analysis, null, lastError ?? "表紙にできる画像がありません", coverMissing);
+    }
+
+    /// <summary>
+    /// 表紙を、利用者が選んだ画像（と切り抜きの範囲）にして、サムネイルを作り直す（Issue #15）。cover が null なら、自動に戻す。
+    /// 記録はアーカイブ（DB）に持つため、キャッシュを削除したり、作り直したりしても、選んだ表紙を使い続ける。
+    /// 作り直した結果は、<see cref="ArchiveProcessed"/> でも知らせる。アーカイブが見つからない、外部で変更された場合は null
+    /// （記録は残り、次に作り直すときに使う）。
+    /// </summary>
+    public async Task<ArchiveProcessed?> SetCoverAsync(long archiveId, CoverSelection? cover, CancellationToken ct = default)
+    {
+        if (cover is not null)
+        {
+            ArgumentException.ThrowIfNullOrWhiteSpace(cover.Entry);
+            if (cover.Crop is { IsValid: false })
+            {
+                throw new ArgumentException("切り抜きの範囲が正しくありません", nameof(cover));
+            }
+        }
+
+        await writer.ExecuteAsync(
+            async (connection, transaction, token) => await archives.SetCoverAsync(connection, transaction, archiveId, cover, token),
+            ct);
+        LogCoverChanged(logger, archiveId, cover?.Entry, cover?.Crop is not null);
+        return await ProcessAsync(archiveId, ct);
     }
 
     /// <summary>
@@ -286,6 +335,12 @@ public sealed partial class ThumbnailService(
                     return false; // 解析中にアーカイブが変更された。スキャンが反映した状態を優先する
                 }
 
+                if (work.CoverMissing)
+                {
+                    // 選んだ表紙の画像が、アーカイブからなくなった。自動に戻す
+                    await archives.SetCoverAsync(connection, transaction, target.Id, null, token);
+                }
+
                 if (!isReady)
                 {
                     // 画像として扱えないアーカイブには、サムネイルを持たせない
@@ -341,7 +396,8 @@ public sealed partial class ThumbnailService(
             analysis.Status.ToDbValue(),
             isReady || analysis.Status == ArchiveAnalysisStatus.Empty ? analysis.ImageCount : null,
             savedPath,
-            thumbnailStatus);
+            thumbnailStatus,
+            target.Cover is not null && !work.CoverMissing);
     }
 
     /// <summary>キャッシュのファイルが失われているサムネイルを、再生成待ち(STALE)に戻す。</summary>
@@ -376,7 +432,15 @@ public sealed partial class ThumbnailService(
 
     private sealed record RenderedCover(string Entry, GeneratedThumbnail Thumbnail);
 
-    private sealed record ProcessingResult(ArchiveAnalysis Analysis, RenderedCover? Cover, string? CoverError = null);
+    /// <summary>CoverMissing は、利用者が選んだ表紙の画像が、アーカイブになかった（記録を消して、自動に戻す）。</summary>
+    private sealed record ProcessingResult(
+        ArchiveAnalysis Analysis, RenderedCover? Cover, string? CoverError = null, bool CoverMissing = false);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "表紙を変えました。ArchiveId={Id} Entry={Entry} Cropped={Cropped}")]
+    private static partial void LogCoverChanged(ILogger logger, long id, string? entry, bool cropped);
+
+    [LoggerMessage(Level = LogLevel.Information, Message = "選んだ表紙の画像が、アーカイブにないため、自動に戻します。ArchiveId={Id} Entry={Entry}")]
+    private static partial void LogCoverMissing(ILogger logger, long id, string entry);
 
     [LoggerMessage(Level = LogLevel.Information, Message = "サムネイル生成が終了しました。対象={Total} 失敗={Failed}")]
     private static partial void LogRunCompleted(ILogger logger, int total, int failed);

@@ -1,0 +1,100 @@
+<Window x:Class="K35Viewer.Views.CoverCropDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="表紙を切り抜く"
+        SizeToContent="WidthAndHeight"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        WindowStartupLocation="CenterOwner"
+        FocusManager.FocusedElement="{Binding ElementName=Surface}">
+    <DockPanel Margin="20">
+        <TextBlock DockPanel.Dock="Top"
+                   x:Name="EntryText"
+                   Margin="0,0,0,4"
+                   FontWeight="SemiBold"
+                   TextTrimming="CharacterEllipsis" />
+        <TextBlock DockPanel.Dock="Top"
+                   Margin="0,0,0,12"
+                   Foreground="{DynamicResource TextFillColorSecondaryBrush}"
+                   Text="枠をドラッグして動かし、四隅と辺のつまみで大きさを変えます。矢印キーで動かし、+ / − で大きさを変えられます。カードと縦横比が違うときは、余った所に背景が見えます。" TextWrapping="Wrap" MaxWidth="860" HorizontalAlignment="Left" />
+        <DockPanel DockPanel.Dock="Bottom" Margin="0,16,0,0" LastChildFill="False">
+            <Button DockPanel.Dock="Left"
+                    Content="いちばん大きく"
+                    MinWidth="88"
+                    Padding="12,5"
+                    Click="OnResetClick"
+                    ToolTip="枠を、画像に収まるいちばん大きな大きさにします（縦横比が自由なら、画像の全体）"
+                    AutomationProperties.Name="枠をいちばん大きくする" />
+            <CheckBox x:Name="LockAspectBox"
+                      DockPanel.Dock="Left"
+                      Content="カードの縦横比に合わせる"
+                      Margin="16,0,0,0"
+                      MinWidth="0"
+                      VerticalAlignment="Center"
+                      Checked="OnLockAspectChanged"
+                      Unchecked="OnLockAspectChanged"
+                      ToolTip="オンにすると、枠をライブラリのカードと同じ縦横比に保ちます（カードいっぱいの表紙になります）"
+                      AutomationProperties.Name="カードの縦横比に合わせる" />
+            <Button DockPanel.Dock="Right"
+                    Content="キャンセル"
+                    MinWidth="88"
+                    Padding="12,5"
+                    Margin="8,0,0,0"
+                    IsCancel="True"
+                    AutomationProperties.Name="キャンセル" />
+            <Button DockPanel.Dock="Right"
+                    Content="表紙にする"
+                    MinWidth="88"
+                    Padding="12,5"
+                    IsDefault="True"
+                    Click="OnOkClick"
+                    AutomationProperties.Name="この範囲を表紙にする" />
+        </DockPanel>
+        <!-- 右: できあがりの見本（ライブラリのカードと同じ縦横比） -->
+        <StackPanel DockPanel.Dock="Right" Margin="16,0,0,0">
+            <TextBlock Text="できあがり" Margin="0,0,0,6" />
+            <Border Width="123"
+                    Height="165"
+                    Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                    BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+                    BorderThickness="1">
+                <Image x:Name="Preview"
+                       Stretch="Uniform"
+                       RenderOptions.BitmapScalingMode="HighQuality"
+                       AutomationProperties.Name="できあがりの見本" />
+            </Border>
+        </StackPanel>
+        <!-- 左: 画像と、切り抜きの枠 -->
+        <Border Background="#202020">
+            <Canvas x:Name="Surface"
+                    Focusable="True"
+                    ClipToBounds="True"
+                    Background="Transparent"
+                    FocusVisualStyle="{x:Null}"
+                    AutomationProperties.Name="切り抜きの範囲"
+                    AutomationProperties.HelpText="矢印キーで枠を動かし、+ / − で大きさを変えます"
+                    MouseLeftButtonDown="OnSurfaceMouseLeftButtonDown"
+                    MouseMove="OnSurfaceMouseMove"
+                    MouseLeftButtonUp="OnSurfaceMouseLeftButtonUp"
+                    LostMouseCapture="OnSurfaceLostMouseCapture"
+                    KeyDown="OnSurfaceKeyDown">
+                <Image x:Name="Picture" RenderOptions.BitmapScalingMode="HighQuality" />
+                <!-- 枠の外を暗くする -->
+                <Path x:Name="Mask" Fill="#A0000000" IsHitTestVisible="False" />
+                <Rectangle x:Name="Frame"
+                           Stroke="White"
+                           StrokeThickness="2"
+                           Fill="Transparent"
+                           Cursor="SizeAll" />
+                <Rectangle x:Name="TopLeftHandle" Tag="TopLeft" Width="14" Height="14" Fill="White" Stroke="Black" Cursor="SizeNWSE" />
+                <Rectangle x:Name="TopRightHandle" Tag="TopRight" Width="14" Height="14" Fill="White" Stroke="Black" Cursor="SizeNESW" />
+                <Rectangle x:Name="BottomLeftHandle" Tag="BottomLeft" Width="14" Height="14" Fill="White" Stroke="Black" Cursor="SizeNESW" />
+                <Rectangle x:Name="BottomRightHandle" Tag="BottomRight" Width="14" Height="14" Fill="White" Stroke="Black" Cursor="SizeNWSE" />
+                <Rectangle x:Name="TopHandle" Tag="Top" Width="14" Height="14" Fill="White" Stroke="Black" Cursor="SizeNS" />
+                <Rectangle x:Name="BottomHandle" Tag="Bottom" Width="14" Height="14" Fill="White" Stroke="Black" Cursor="SizeNS" />
+                <Rectangle x:Name="LeftHandle" Tag="Left" Width="14" Height="14" Fill="White" Stroke="Black" Cursor="SizeWE" />
+                <Rectangle x:Name="RightHandle" Tag="Right" Width="14" Height="14" Fill="White" Stroke="Black" Cursor="SizeWE" />
+            </Canvas>
+        </Border>
+    </DockPanel>
+</Window>

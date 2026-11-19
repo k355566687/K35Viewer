@@ -54,6 +54,9 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
     /// <summary>新しく見つかって、まだ開いていない（「新着」の印がある）。</summary>
     public bool IsNew => _summary.IsNew;
 
+    /// <summary>利用者が選んだ表紙を使っている（Issue #15）。右クリックの「表紙を自動に戻す」を出す。</summary>
+    public bool HasCustomCover => _summary.HasCustomCover;
+
     /// <summary>「新着」の印を外す（開いたとき）。</summary>
     public void MarkRead()
     {
@@ -197,6 +200,7 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
             ImageCount = update.ImageCount,
             ThumbnailPath = update.ThumbnailPath,
             ThumbnailStatus = update.ThumbnailStatus,
+            HasCustomCover = update.HasCustomCover,
         };
 
         // 再生成では同じパスの中身が変わるため、メモリ上の古い画像を捨てて読み直す
@@ -210,6 +214,7 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
         OnPropertyChanged(nameof(ThumbnailPath));
         OnPropertyChanged(nameof(PlaceholderText));
         OnPropertyChanged(nameof(ImageCountText));
+        OnPropertyChanged(nameof(HasCustomCover));
     }
 
     private void OnThumbnailLoaded()

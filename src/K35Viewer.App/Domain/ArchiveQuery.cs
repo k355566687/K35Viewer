@@ -42,7 +42,8 @@ public sealed record ArchiveSummary(
     string? ThumbnailStatus = null,
     string? LibraryRootPath = null,
     bool IsNew = false,
-    long? LastOpenedAt = null)
+    long? LastOpenedAt = null,
+    bool HasCustomCover = false)
 {
     public string FullPath => Path.Combine(FolderPath, FileName);
 }
@@ -62,13 +63,15 @@ public sealed record ArchiveOpenInfo(
 /// <summary>
 /// 解析・サムネイル生成の対象アーカイブ。FileSize / LastWriteTime はDBに記録されている値で、
 /// 処理前にファイルの現在の状態と照合し、外部で変更されていれば処理しない。
+/// Cover は、利用者が選んだ表紙（GitHub の Issue #15）。null なら自動（自然順の先頭の画像）。
 /// </summary>
 public sealed record ArchiveProcessingTarget(
     long Id,
     string FolderPath,
     string FileName,
     long FileSize,
-    long LastWriteTime)
+    long LastWriteTime,
+    CoverSelection? Cover = null)
 {
     public string FullPath => Path.Combine(FolderPath, FileName);
 }

@@ -1,4 +1,4 @@
-using System.Globalization;
+﻿using System.Globalization;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -12,6 +12,9 @@ namespace K35Viewer.ViewModels;
 
 /// <summary>並べ替え項目の選択肢。</summary>
 public sealed record SortOption(ArchiveSortKey Key, string Label);
+
+/// <summary>表紙を変えた結果（Issue #15）。Message は、利用者へ知らせる文。</summary>
+public sealed record CoverChange(bool Succeeded, string Message);
 
 /// <summary>
 /// ライブラリ画面のViewModel(SCR-01)。フォルダツリー、アーカイブ一覧(詳細 / サムネイル表示)、検索・ソート、
@@ -101,6 +104,7 @@ public sealed partial class LibraryViewModel(
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(ShowSelectedInExplorerCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConvertSelectedToZipCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetCoverSelectedCommand))]
     private ArchiveListItem? _selectedArchive;
 
     /// <summary>ツリーで選択中の項目。管理フォルダ自身が選ばれているときだけ、「管理対象から外す」ができる。</summary>
@@ -117,6 +121,7 @@ public sealed partial class LibraryViewModel(
     [NotifyCanExecuteChangedFor(nameof(DeleteSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(ShowSelectedInExplorerCommand))]
     [NotifyCanExecuteChangedFor(nameof(ConvertSelectedToZipCommand))]
+    [NotifyCanExecuteChangedFor(nameof(ResetCoverSelectedCommand))]
     [NotifyCanExecuteChangedFor(nameof(RemoveSelectedFolderCommand))]
     [NotifyPropertyChangedFor(nameof(RemoveFolderToolTip))]
     [NotifyPropertyChangedFor(nameof(ClearBlockedReason))]
@@ -363,6 +368,47 @@ public sealed partial class LibraryViewModel(
             OpenRequested?.Invoke(this, item.Id);
         }
     }
+
+    /// <summary>
+    /// アーカイブの表紙を、選んだ画像（と切り抜きの範囲）にする（Issue #15）。cover が null なら、自動に戻す。
+    /// サムネイルを作り直し、一覧の表示を更新する（作り直しの結果は、サムネイルの作成の通知で届く）。
+    /// 作り直せた場合は true。記録できなかった、または作り直せなかった場合は false（理由はログ）。
+    /// </summary>
+    public async Task<bool> SetCoverAsync(long archiveId, CoverSelection? cover)
+    {
+        try
+        {
+            var result = await thumbnails.SetCoverAsync(archiveId, cover, _cts.Token);
+            return result is { ThumbnailStatus: "READY" };
+        }
+        catch (OperationCanceledException)
+        {
+            return false; // アプリ終了中
+        }
+        catch (Exception ex)
+        {
+            LogCoverFailed(logger, ex, archiveId);
+            return false;
+        }
+    }
+
+    /// <summary>選択中のアーカイブの表紙を、自動（先頭の画像）に戻す（右クリックの「表紙を自動に戻す」。Issue #15）。</summary>
+    [RelayCommand(CanExecute = nameof(CanResetCover))]
+    private Task ResetCoverSelectedAsync() => RunOperationAsync(async () =>
+    {
+        var item = SelectedArchive!;
+        CoverChanged?.Invoke(
+            this,
+            await SetCoverAsync(item.Id, null)
+                ? new CoverChange(true, "表紙を自動に戻しました")
+                : new CoverChange(false, "表紙を自動に戻せませんでした"));
+        return false; // 一覧は取得し直さない（作り直しの通知で、その行だけを更新する）
+    });
+
+    private bool CanResetCover() => SelectedArchive is { HasCustomCover: true } && !IsOperating;
+
+    /// <summary>表紙を変えた（または、変えられなかった）。通知は、呼び出し側（<see cref="MainViewModel"/>）が出す。</summary>
+    public event EventHandler<CoverChange>? CoverChanged;
 
     /// <summary>最近開いたアーカイブの一覧に出す件数（Issue #27）。</summary>
     public const int RecentLimit = 10;
@@ -1165,6 +1211,9 @@ public sealed partial class LibraryViewModel(
             _uiContext.Post(static state => ((Action)state!)(), (Action)Apply);
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "表紙を変えられませんでした。ArchiveId={Id}")]
+    private static partial void LogCoverFailed(ILogger logger, Exception exception, long id);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "フォルダツリーの読み込みに失敗しました。")]
     private static partial void LogLoadFailed(ILogger logger, Exception exception);

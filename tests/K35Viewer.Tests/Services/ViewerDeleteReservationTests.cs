@@ -515,7 +515,7 @@ public class ViewerDeleteReservationTests
 
         Assert.Equal([1], reservedLabelsVisible);
         Assert.Equal("削除予定 1枚", countTextVisible);
-        Assert.Equal(["削除予約", "削除予約を解除"], contextMenuItems);
+        Assert.Equal(["削除予約", "削除予約を解除", "この画像を表紙にする", "表紙を切り抜く…"], contextMenuItems);
         Assert.True(singleBadgeVisible, "予約済みの画像を1枚表示したときに、削除予定の表示が出ていません。");
         await viewer.CloseAsync();
     }

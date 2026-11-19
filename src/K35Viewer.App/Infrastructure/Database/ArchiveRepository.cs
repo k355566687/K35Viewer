@@ -96,7 +96,7 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         // サムネイルは READY のほか、再生成待ち(STALE)の間も古い画像を表示し続ける
         var listSql =
             $"{cte} SELECT a.id, a.file_name, f.full_path, a.file_size, a.last_write_time, a.image_count, a.analysis_status, " +
-            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status, lf.path, a.is_new, a.last_opened_at " +
+            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status, lf.path, a.is_new, a.last_opened_at, a.cover_entry IS NOT NULL " +
             "FROM archives a JOIN folders f ON a.folder_id = f.id " +
             "JOIN library_folders lf ON f.library_folder_id = lf.id " +
             $"LEFT JOIN thumbnail_cache t ON t.archive_id = a.id WHERE {where} " +
@@ -129,7 +129,8 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
                     reader.GetNullableString(8),
                     reader.GetString(9),
                     reader.GetInt64(10) != 0,
-                    reader.IsDBNull(11) ? null : reader.GetInt64(11)));
+                    reader.IsDBNull(11) ? null : reader.GetInt64(11),
+                    reader.GetInt64(12) != 0));
             }
         }
 
@@ -179,17 +180,57 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
             connection,
             null,
             """
-            SELECT a.id, f.full_path, a.file_name, a.file_size, a.last_write_time
+            SELECT a.id, f.full_path, a.file_name, a.file_size, a.last_write_time,
+                   a.cover_entry, a.cover_crop_x, a.cover_crop_y, a.cover_crop_width, a.cover_crop_height
               FROM archives a
               JOIN folders f ON a.folder_id = f.id
              WHERE a.id = $id AND a.availability_status = 'AVAILABLE'
             """,
             ("$id", id));
         await using var reader = await command.ExecuteReaderAsync(ct);
-        return await reader.ReadAsync(ct)
-            ? new ArchiveProcessingTarget(
-                reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3), reader.GetInt64(4))
-            : null;
+        if (!await reader.ReadAsync(ct))
+        {
+            return null;
+        }
+
+        CoverSelection? cover = null;
+        if (!reader.IsDBNull(5))
+        {
+            var crop = reader.IsDBNull(6) || reader.IsDBNull(7) || reader.IsDBNull(8) || reader.IsDBNull(9)
+                ? null
+                : new CoverCrop(reader.GetDouble(6), reader.GetDouble(7), reader.GetDouble(8), reader.GetDouble(9));
+            // 範囲が壊れていたら（手で書き換えた、など）、画像の全体を使う
+            cover = new CoverSelection(reader.GetString(5), crop is { IsValid: true } ? crop : null);
+        }
+
+        return new ArchiveProcessingTarget(
+            reader.GetInt64(0), reader.GetString(1), reader.GetString(2), reader.GetInt64(3), reader.GetInt64(4), cover);
+    }
+
+    /// <summary>
+    /// 利用者が選んだ表紙を記録する（Issue #15）。cover が null なら、記録を消して自動に戻す。
+    /// アーカイブそのものは変えない。<c>updated_at</c> も変えない（ファイルの記録ではないため）。
+    /// </summary>
+    public async Task SetCoverAsync(
+        SqliteConnection connection, SqliteTransaction transaction, long id, CoverSelection? cover, CancellationToken ct)
+    {
+        var crop = cover?.Crop;
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            """
+            UPDATE archives
+               SET cover_entry = $entry, cover_crop_x = $x, cover_crop_y = $y,
+                   cover_crop_width = $width, cover_crop_height = $height
+             WHERE id = $id
+            """,
+            ("$id", id),
+            ("$entry", cover?.Entry),
+            ("$x", crop?.X),
+            ("$y", crop?.Y),
+            ("$width", crop?.Width),
+            ("$height", crop?.Height));
+        _ = await command.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>
