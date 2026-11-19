@@ -1,12 +1,17 @@
 # 画像アーカイブ管理ビューア DB設計書
 
-**文書バージョン:** Ver.0.2.13  
+**文書バージョン:** Ver.0.2.14  
 **作成日:** 2026-11-06  
-**更新日:** 2026-11-16  
+**更新日:** 2026-11-19  
 **対象:** MVP  
 **DBMS:** SQLite
 
 ## 1. 修正内容
+### Ver.0.2.14（最近開いたアーカイブに伴う変更。GitHub の Issue #27）
+- `archives` に、`last_opened_at` 列（最後に開いた日時）を加えた。6.3を更新
+- 5番目のマイグレーション（`0005_archive_last_opened.sql`）で、列を足し、既存の行には `last_viewed_at` を写す。`schema_version` は5になる。13.4を追加
+- 一覧の検索クエリ（11.8）に、「最近開いたものだけ」の取得と、`last_opened_at` の取得を加えた
+- 終了時の状態の復元（GitHub の Issue #26）は、設定のファイルに持ち、DB は変えない
 ### Ver.0.2.13（新着の表示に伴う変更。GitHub の Issue #16）
 - `archives` に、`is_new` 列（0 / 1。「新着」の印）を加えた。6.3を更新
 - 4番目のマイグレーション（`0004_archive_is_new.sql`）で、列を足す。既存の行は 0。`schema_version` は4になる。13.3を追加
@@ -218,6 +223,7 @@ scan_runs
 | `error_message` | TEXT | YES | 最終解析エラー概要 |
 | `last_seen_scan_id` | INTEGER | YES | 最後に存在確認したScan ID |
 | `is_new` | INTEGER | NO | 「新着」の印。0 または 1（CHECK）。既定は 0。schema_version 4 から（13.3） |
+| `last_opened_at` | INTEGER | YES | 最後にビューアで開いた日時 UTC。NULL は、開いていない、または履歴を消した。schema_version 5 から（13.4） |
 | `created_at` | INTEGER | NO | DB登録日時 UTC |
 | `updated_at` | INTEGER | NO | DB更新日時 UTC |
 
@@ -234,6 +240,17 @@ scan_runs
 - **外す**: アーカイブを開いたとき（`ViewerService.OpenAsync` が、開けた時点で 0 にする。`updated_at` は変えない）、または「新着を既読に」（選んだフォルダ以下、または全部を 0 にする）
 - 外せなくても（書き込みの失敗）、閲覧は妨げない（警告をログに残す）
 - 索引は作らない。「新着だけ」は、全件を読んで絞り込む（11.8 の、ほかの条件と同じ）。10,000件規模での速さは、測っていない（必要になったら、`is_new = 1` の部分索引を足せる）
+
+#### 最後に開いた日時（`last_opened_at`）
+
+最近開いたアーカイブの一覧（要件定義 5.5）に使う。
+
+- **記録**: アーカイブを開けた時点（`ViewerService.OpenAsync`）で、今の日時にする。「新着」の印を外すのと、同じトランザクションで書く。開けなかったときは記録しない。`updated_at` は変えない
+- **消す**: 「履歴を消す」で、すべての行を NULL にする。ほかの列（閲覧位置など）は変えない
+- **`last_viewed_at` と分けた理由**: `last_viewed_at` は、閲覧位置を保存した日時で、頁を移るたびに変わる。また、画像の削除（ZIPの作り直し）で閲覧位置がなくなると NULL に戻る（11.3）。「最後に開いた」を表すには、開いた時点だけで変わる列がよく、履歴を消しても閲覧位置を残せる
+- 名前変更・移動・ZIPの作り直し・RAR / 7z の変換では、変えない（同じ行を更新するため、一覧に残る）
+- 書き込めなくても（失敗）、閲覧は妨げない（警告をログに残す）
+- 索引は作らない。一覧の取得は、`last_opened_at IS NOT NULL` の行を、新しい順に並べて 10 件取る。10,000件規模での速さは、測っていない（必要になったら、部分索引を足せる）
 
 #### 最後に閲覧した位置
 
@@ -715,6 +732,7 @@ Phase 9 の実装で、手順4の件数は、配下のアーカイブの登録�
 - **ファイル名検索**: 入力を空白（全角空白を含む）で区切り、すべての語を含むファイル名に一致させる（AND、部分一致）。語は `LIKE` のパラメーターとして渡し、`%` `_` `\` は文字そのものとして扱うようエスケープする
 - **並べ替え**: ファイル名（大文字小文字を区別しない）、更新日時、ファイルサイズ、画像枚数。画像枚数の未解析（NULL）は0枚として扱う。同じ値の行は `archives.id` 順とし、順序を安定させる。昇順・降順を選べる
 - **新着だけ**: 条件に `archives.is_new = 1` を加える（ほかの条件と AND）。一覧には、各行の `is_new` を含める
+- **最近開いたものだけ**（`ArchiveQuery.RecentOnly`）: 条件に `archives.last_opened_at IS NOT NULL` を加え、並べ替えは指定によらず `last_opened_at DESC`（同じ値は `archives.id` 順）にする。最近開いたアーカイブの一覧は、フォルダ・検索・新着の条件をつけずに、Limit 10 で取る。一覧には、各行の `last_opened_at` を含める
 - **総件数**: 件数表示のため、絞り込み条件に一致する総件数を別クエリで返す。取得範囲（Offset / Limit）は任意
 
 既知の制限:
@@ -780,6 +798,7 @@ RAR / 7z を ZIP に変換したとき、同じアーカイブ（Archive ID）�
 | 2 | `0002_archive_formats.sql` | `archives.extension` のCHECKに、`rar`、`cbr`、`7z`、`cb7` を加える（GitHub の Issue #3） |
 | 3 | `0003_requeue_empty_archives.sql` | `analysis_status = 'EMPTY'` の行を `PENDING` に戻す（GitHub の Issue #2） |
 | 4 | `0004_archive_is_new.sql` | `archives.is_new`（0 / 1、既定 0）を加える（GitHub の Issue #16） |
+| 5 | `0005_archive_last_opened.sql` | `archives.last_opened_at`（NULL 可）を加え、既存の行に `last_viewed_at` を写す（GitHub の Issue #27） |
 
 ### 13.1 表の作り直し（0002）
 SQLiteは、CHECK制約をあとから変更できないため、SQLite公式の手順で `archives` を作り直す。
@@ -817,3 +836,13 @@ UPDATE archives
 
 - 既存の行は 0 になる。この版へ更新した直後に、ライブラリ全体が新着にならない
 - 0 と 1 以外は入らない（テストで確かめている）
+
+### 13.4 最後に開いた日時の列の追加（0005）
+```sql
+ALTER TABLE archives ADD COLUMN last_opened_at INTEGER;
+UPDATE archives SET last_opened_at = last_viewed_at WHERE last_viewed_at IS NOT NULL;
+```
+
+- NULL を許す列のため、表を作り直さずに足せる（0004 と同じ）
+- 既存の行は、`last_viewed_at`（閲覧位置を保存した日時。開いただけでも記録している）を写す。この版へ更新した直後も、最近開いたアーカイブの一覧が空にならない。開いたことのない行は NULL のまま
+- テスト: `last_viewed_at` のある行だけに写り、ない行は NULL のまま。行の数は変わらない
