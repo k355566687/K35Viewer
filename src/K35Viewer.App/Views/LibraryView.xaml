@@ -261,6 +261,96 @@
                                VerticalAlignment="Center"
                                Foreground="{DynamicResource TextFillColorSecondaryBrush}"
                                Visibility="{Binding IsScanning, Converter={StaticResource BoolToVisibility}}" />
+                    <!-- 最近開いたアーカイブ（Issue #27）。押すと一覧が開き、選ぶとそのアーカイブを開く -->
+                    <Button x:Name="RecentButton"
+                            Content="最近開いた"
+                            Click="OnRecentButtonClick"
+                            Padding="12,3"
+                            Margin="0,0,6,0"
+                            ToolTip="最近開いたアーカイブの一覧を表示します"
+                            AutomationProperties.Name="最近開いたアーカイブの一覧" />
+                    <Popup IsOpen="{Binding IsRecentOpen, Mode=TwoWay}"
+                           PlacementTarget="{Binding ElementName=RecentButton}"
+                           Placement="Bottom"
+                           StaysOpen="False"
+                           AllowsTransparency="False">
+                        <Border Width="440"
+                                MaxHeight="560"
+                                Padding="8"
+                                Background="{DynamicResource CardBackgroundFillColorDefaultBrush}"
+                                BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+                                BorderThickness="1">
+                            <DockPanel>
+                                <DockPanel DockPanel.Dock="Top" Margin="0,0,0,6" LastChildFill="False">
+                                    <TextBlock Text="最近開いたアーカイブ"
+                                               DockPanel.Dock="Left"
+                                               VerticalAlignment="Center"
+                                               FontWeight="SemiBold" />
+                                    <Button Content="履歴を消す"
+                                            DockPanel.Dock="Right"
+                                            Command="{Binding ClearRecentCommand}"
+                                            Padding="10,2"
+                                            ToolTip="この一覧を空にします。アーカイブそのものや、続きから読む位置は消えません"
+                                            AutomationProperties.Name="最近開いたアーカイブの履歴を消す" />
+                                </DockPanel>
+                                <TextBlock Text="まだ開いたアーカイブがありません"
+                                           Margin="4,10"
+                                           Foreground="{DynamicResource TextFillColorSecondaryBrush}">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock">
+                                            <Setter Property="Visibility" Value="Collapsed" />
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding HasRecentArchives}" Value="False">
+                                                    <Setter Property="Visibility" Value="Visible" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                                <ListBox x:Name="RecentList"
+                                         ItemsSource="{Binding RecentArchives}"
+                                         Visibility="{Binding HasRecentArchives, Converter={StaticResource BoolToVisibility}}"
+                                         AutomationProperties.Name="最近開いたアーカイブ">
+                                    <ListBox.ItemContainerStyle>
+                                        <Style TargetType="ListBoxItem" BasedOn="{StaticResource {x:Type ListBoxItem}}">
+                                            <EventSetter Event="PreviewMouseLeftButtonUp" Handler="OnRecentItemClick" />
+                                            <EventSetter Event="KeyDown" Handler="OnRecentItemKeyDown" />
+                                        </Style>
+                                    </ListBox.ItemContainerStyle>
+                                    <ListBox.ItemTemplate>
+                                        <DataTemplate>
+                                            <Grid ToolTip="{Binding FullPath}"
+                                                  AutomationProperties.Name="{Binding FileName}">
+                                                <Grid.ColumnDefinitions>
+                                                    <ColumnDefinition Width="Auto" />
+                                                    <ColumnDefinition Width="*" />
+                                                </Grid.ColumnDefinitions>
+                                                <Border Width="44"
+                                                        Height="60"
+                                                        Margin="0,2,10,2"
+                                                        Background="{DynamicResource ControlFillColorDefaultBrush}"
+                                                        BorderBrush="{DynamicResource DividerStrokeColorDefaultBrush}"
+                                                        BorderThickness="1">
+                                                    <Image Source="{Binding Thumbnail}"
+                                                           Stretch="Uniform"
+                                                           RenderOptions.BitmapScalingMode="HighQuality" />
+                                                </Border>
+                                                <StackPanel Grid.Column="1" VerticalAlignment="Center">
+                                                    <TextBlock Text="{Binding FileName}"
+                                                               TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Text="{Binding LocationText}"
+                                                               TextTrimming="CharacterEllipsis"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                    <TextBlock Text="{Binding LastOpenedText, StringFormat=最後に開いた日時: {0}}"
+                                                               Foreground="{DynamicResource TextFillColorSecondaryBrush}" />
+                                                </StackPanel>
+                                            </Grid>
+                                        </DataTemplate>
+                                    </ListBox.ItemTemplate>
+                                </ListBox>
+                            </DockPanel>
+                        </Border>
+                    </Popup>
                     <Button Content="新着を既読に"
                             Command="{Binding MarkAllReadCommand}"
                             Padding="12,3"

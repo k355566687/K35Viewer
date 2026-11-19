@@ -176,6 +176,36 @@ public partial class LibraryView : UserControl
         }
     }
 
+    // 「最近開いた」: ボタンで一覧を開く（開くたびに、DBから読み直す）
+    private void OnRecentButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (ViewModel is { } viewModel)
+        {
+            viewModel.IsRecentOpen = true;
+        }
+    }
+
+    // 「最近開いた」: 項目のクリックと、Enter で、そのアーカイブを開く
+    private void OnRecentItemClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ArchiveListItem item } && ViewModel is { } viewModel)
+        {
+            viewModel.OpenRecentCommand.Execute(item);
+            e.Handled = true;
+        }
+    }
+
+    private void OnRecentItemKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key == Key.Enter
+            && sender is FrameworkElement { DataContext: ArchiveListItem item }
+            && ViewModel is { } viewModel)
+        {
+            viewModel.OpenRecentCommand.Execute(item);
+            e.Handled = true;
+        }
+    }
+
     // サムネイル表示: カードのクリックで選択し、ダブルクリックで開く。キー操作を受けられるよう、一覧にフォーカスを移す
     private void OnThumbnailCellMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {

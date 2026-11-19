@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using K35Viewer.Infrastructure.Settings;
 using K35Viewer.ViewModels;
 
 namespace K35Viewer.Views;
@@ -19,8 +20,11 @@ public partial class MainWindow : Window
         _viewModel = viewModel;
         DataContext = viewModel;
 
+        RestorePlacement(viewModel.SavedWindowPlacement);
         PreviewKeyDown += OnPreviewKeyDown;
         Closing += OnClosing;
+        // 画面が表示されたあとに、前回開いていたアーカイブを続きから開く（設定がオンのとき）。1回だけ
+        ContentRendered += OnContentRenderedOnce;
         Activated += (_, _) => _viewModel.OnWindowActivated();
         viewModel.Viewer.PropertyChanged += OnViewerPropertyChanged;
         viewModel.PropertyChanged += OnMainPropertyChanged;
@@ -77,8 +81,51 @@ public partial class MainWindow : Window
                 return;
             default:
                 _viewModel.Viewer.FlushForExit();
+                _viewModel.SaveExitState(CapturePlacement());
                 return;
         }
+    }
+
+    private async void OnContentRenderedOnce(object? sender, EventArgs e)
+    {
+        ContentRendered -= OnContentRenderedOnce;
+        await _viewModel.ResumeLastArchiveAsync();
+    }
+
+    // 前回の位置と大きさに戻す。画面の外に出てしまう場合（モニターを外した、解像度を下げた）は、既定の位置で始める
+    private void RestorePlacement(WindowPlacement? placement)
+    {
+        if (placement is null
+            || !placement.IsUsable(
+                SystemParameters.VirtualScreenLeft,
+                SystemParameters.VirtualScreenTop,
+                SystemParameters.VirtualScreenWidth,
+                SystemParameters.VirtualScreenHeight))
+        {
+            return;
+        }
+
+        WindowStartupLocation = WindowStartupLocation.Manual;
+        Left = placement.Left;
+        Top = placement.Top;
+        Width = placement.Width;
+        Height = placement.Height;
+        if (placement.IsMaximized)
+        {
+            WindowState = WindowState.Maximized;
+        }
+    }
+
+    // 今の位置と大きさ。最大化・最小化しているときは、通常の状態に戻したときの値（RestoreBounds）を使う。
+    // 全画面表示のまま終了する場合は、全画面にする前の状態を使う
+    private WindowPlacement CapturePlacement()
+    {
+        var fullScreen = _viewModel.Viewer.IsFullScreen;
+        var state = fullScreen ? _stateBeforeFullScreen : WindowState;
+        var bounds = WindowState == WindowState.Normal
+            ? new Rect(Left, Top, Width, Height)
+            : RestoreBounds;
+        return new WindowPlacement(bounds.Left, bounds.Top, bounds.Width, bounds.Height, state == WindowState.Maximized);
     }
 
     private async Task UpdateThenCloseAsync()

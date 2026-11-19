@@ -58,6 +58,18 @@ public sealed partial class SettingsViewModel(
         }
     }
 
+    // 起動時（Issue #26）
+    /// <summary>起動したとき、前回の終了時にビューアで開いていたアーカイブを、続きから開く。</summary>
+    public bool ResumeLastArchive
+    {
+        get => settings.Current.ResumeLastArchive;
+        set
+        {
+            settings.Update(s => s with { ResumeLastArchive = value });
+            OnPropertyChanged();
+        }
+    }
+
     /// <summary>サムネイルのキャッシュの大きさの表示（例: 「120.5 MB」）。</summary>
     [ObservableProperty]
     private string _cacheSizeText = "計算中…";

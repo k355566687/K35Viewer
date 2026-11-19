@@ -104,6 +104,16 @@
                                                            Text="ごみ箱を使えない場所での完全な削除は、常に確認します。" />
                             </StackPanel>
                         </Border>
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="起動時">
+                            <StackPanel>
+                                <TextBlock Text="起動時" Style="{StaticResource CardHeader}" />
+                                <CheckBox Content="前回開いていたアーカイブを、続きから開く"
+                                          IsChecked="{Binding ResumeLastArchive}"
+                                          AutomationProperties.Name="前回開いていたアーカイブを続きから開く" />
+                                <TextBlock Style="{StaticResource Note}"
+                                           Text="ビューアでアーカイブを開いたまま終了したときだけ、次の起動で、そのアーカイブを最後に見ていたページから開きます。ウィンドウの位置と大きさ、一覧の並べ替えは、常に前回のとおりに戻します。" />
+                            </StackPanel>
+                        </Border>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
