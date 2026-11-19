@@ -85,11 +85,13 @@ public sealed class SettingsLayoutTests
         Assert.Contains("更新を確認", names["アプリ"]);
         Assert.Contains("新しい版へ更新する", names["アプリ"]);
         Assert.Contains("ライセンスのページを開く", names["アプリ"]);
+        Assert.Contains("アンインストールする", names["アプリ"]);
 
         Assert.DoesNotContain("バックアップを作成", names["全般"]);
         Assert.DoesNotContain("テーマ: ダーク", names["データ"]);
         Assert.DoesNotContain("更新を確認", names["データ"]);
         Assert.DoesNotContain("バックアップを作成", names["アプリ"]);
+        Assert.DoesNotContain("アンインストールする", names["データ"]);
     }
 
     [Fact]
@@ -103,6 +105,7 @@ public sealed class SettingsLayoutTests
         Assert.Contains("バックアップ", names["データ"]);
         Assert.Contains("ショートカット", names["アプリ"]);
         Assert.Contains("アプリの更新", names["アプリ"]);
+        Assert.Contains("アンインストール", names["アプリ"]);
         Assert.Contains("情報", names["アプリ"]);
     }
 }
