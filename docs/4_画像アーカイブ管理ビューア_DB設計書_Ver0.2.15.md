@@ -1,12 +1,16 @@
 # 画像アーカイブ管理ビューア DB設計書
 
-**文書バージョン:** Ver.0.2.14  
+**文書バージョン:** Ver.0.2.15  
 **作成日:** 2026-11-06  
 **更新日:** 2026-11-19  
 **対象:** MVP  
 **DBMS:** SQLite
 
 ## 1. 修正内容
+### Ver.0.2.15（サムネイルの編集に伴う変更。GitHub の Issue #15）
+- `archives` に、`cover_entry`（利用者が選んだ表紙の画像）と、切り抜きの範囲の 4 列（`cover_crop_x` / `cover_crop_y` / `cover_crop_width` / `cover_crop_height`）を加えた。6.3を更新
+- 6番目のマイグレーション（`0006_archive_cover.sql`）で、列を足す。既存の行は NULL（自動）。`schema_version` は6になる。13.5を追加
+- 解析とサムネイル生成（11.9）で、選んだ表紙を使い、その画像がなければ記録を消す。一覧の検索クエリ（11.8）に、表紙を選んでいるかの取得を加えた
 ### Ver.0.2.14（最近開いたアーカイブに伴う変更。GitHub の Issue #27）
 - `archives` に、`last_opened_at` 列（最後に開いた日時）を加えた。6.3を更新
 - 5番目のマイグレーション（`0005_archive_last_opened.sql`）で、列を足し、既存の行には `last_viewed_at` を写す。`schema_version` は5になる。13.4を追加
@@ -224,6 +228,9 @@ scan_runs
 | `last_seen_scan_id` | INTEGER | YES | 最後に存在確認したScan ID |
 | `is_new` | INTEGER | NO | 「新着」の印。0 または 1（CHECK）。既定は 0。schema_version 4 から（13.3） |
 | `last_opened_at` | INTEGER | YES | 最後にビューアで開いた日時 UTC。NULL は、開いていない、または履歴を消した。schema_version 5 から（13.4） |
+| `cover_entry` | TEXT | YES | 利用者が選んだ表紙の画像のエントリ名。NULL は自動（自然順の先頭）。schema_version 6 から（13.5） |
+| `cover_crop_x` / `cover_crop_y` | REAL | YES | 切り抜きの範囲の左上。元の画像の幅・高さに対する割合（0 以上 1 未満。CHECK）。schema_version 6 から |
+| `cover_crop_width` / `cover_crop_height` | REAL | YES | 切り抜きの範囲の幅・高さ。割合（0 より大きく 1 以下。CHECK）。schema_version 6 から |
 | `created_at` | INTEGER | NO | DB登録日時 UTC |
 | `updated_at` | INTEGER | NO | DB更新日時 UTC |
 
@@ -251,6 +258,18 @@ scan_runs
 - 名前変更・移動・ZIPの作り直し・RAR / 7z の変換では、変えない（同じ行を更新するため、一覧に残る）
 - 書き込めなくても（失敗）、閲覧は妨げない（警告をログに残す）
 - 索引は作らない。一覧の取得は、`last_opened_at IS NOT NULL` の行を、新しい順に並べて 10 件取る。10,000件規模での速さは、測っていない（必要になったら、部分索引を足せる）
+
+#### 利用者が選んだ表紙（`cover_entry`、`cover_crop_*`）
+
+サムネイルの編集（要件定義 6.1）。画像そのものは持たず、名前と範囲だけを持つ（1件あたり数十バイト）。サムネイルの画像は、これまでどおりキャッシュのファイル（6.4）。
+
+- **範囲の持ち方**: 元の画像に対する割合で持つ。画像の大きさや、切り抜きの画面で縮めて出した大きさによらず、同じ範囲を表せる。4つの列は、そろって NULL（画像の全体）か、そろって値がある。縦横比は自由（カードと違う形のサムネイルは、カードの中で余白つきで表示する）。読み込むときに、範囲として正しくなければ（画像の外に出る、など）、画像の全体を使う
+- **名前を基準にする理由**: 閲覧位置（`last_view_entry`）と同じく、ほかの画像を削除しても、位置の番号がずれないため
+- **`thumbnail_cache` に持たない理由**: サムネイルのキャッシュの削除（`DeleteAllAsync`）で、行ごと消えるため。`archives` の列なら、キャッシュを作り直しても残り、バックアップにも入る
+- **記録**: 「この画像を表紙にする」「表紙を切り抜く…」で、値を入れる。「表紙を自動に戻す」で、5つとも NULL にする。`updated_at` は変えない（ファイルの記録ではないため）
+- **なくなったとき**: サムネイルを作るときに、その名前のエントリがアーカイブになければ（`FileNotFoundException`）、5つとも NULL にする（解析の結果と同じトランザクション）。読めなかっただけ（壊れている、一時的なエラー）なら、残す
+- 名前変更・移動・RAR / 7z の ZIP への変換では、変えない（同じ行で、中のエントリ名も変わらないため）
+- 一覧の検索クエリは、`cover_entry IS NOT NULL` を返す（右クリックの「表紙を自動に戻す」を出すため）
 
 #### 最後に閲覧した位置
 
@@ -306,6 +325,7 @@ scan_runs
 - 画像ファイルは `relative_path`（キャッシュルートからの相対パス）に保存する。1フォルダのファイル数が増えすぎないよう、Archive IDを1,000件ごとのフォルダに分ける。形式は `{ID÷1000を4桁0埋め}\archive-{ID}.jpg`（例: ID 12345 は `0012\archive-12345.jpg`）
 - 形式は JPEG 固定、長辺300px（元画像より大きくは拡大しない）、品質80。透過のある画像は白背景に合成する。`format` には `jpg` を入れる
 - `source_archive_size` / `source_last_write_time` は、生成時点のアーカイブの状態。`archives` の現在の値と異なる場合は、キャッシュが古い（無効）と判断する
+- `source_entry` は、実際にサムネイルの元にした画像。利用者が表紙を選んでいれば（6.3 の `cover_entry`）、その画像。切り抜いた場合、`width` / `height` は、切り抜いた範囲を縮めた大きさ（範囲の縦横比のまま。長辺300px、拡大しない）
 
 | `status` | 意味 | 画面への影響 |
 |---|---|---|
@@ -799,6 +819,7 @@ RAR / 7z を ZIP に変換したとき、同じアーカイブ（Archive ID）�
 | 3 | `0003_requeue_empty_archives.sql` | `analysis_status = 'EMPTY'` の行を `PENDING` に戻す（GitHub の Issue #2） |
 | 4 | `0004_archive_is_new.sql` | `archives.is_new`（0 / 1、既定 0）を加える（GitHub の Issue #16） |
 | 5 | `0005_archive_last_opened.sql` | `archives.last_opened_at`（NULL 可）を加え、既存の行に `last_viewed_at` を写す（GitHub の Issue #27） |
+| 6 | `0006_archive_cover.sql` | `archives.cover_entry` と、切り抜きの範囲の4列（NULL 可、範囲の CHECK つき）を加える（GitHub の Issue #15） |
 
 ### 13.1 表の作り直し（0002）
 SQLiteは、CHECK制約をあとから変更できないため、SQLite公式の手順で `archives` を作り直す。
@@ -846,3 +867,17 @@ UPDATE archives SET last_opened_at = last_viewed_at WHERE last_viewed_at IS NOT 
 - NULL を許す列のため、表を作り直さずに足せる（0004 と同じ）
 - 既存の行は、`last_viewed_at`（閲覧位置を保存した日時。開いただけでも記録している）を写す。この版へ更新した直後も、最近開いたアーカイブの一覧が空にならない。開いたことのない行は NULL のまま
 - テスト: `last_viewed_at` のある行だけに写り、ない行は NULL のまま。行の数は変わらない
+
+### 13.5 表紙の列の追加（0006）
+```sql
+ALTER TABLE archives ADD COLUMN cover_entry TEXT;
+ALTER TABLE archives ADD COLUMN cover_crop_x REAL CHECK (cover_crop_x IS NULL OR (cover_crop_x >= 0 AND cover_crop_x < 1));
+ALTER TABLE archives ADD COLUMN cover_crop_y REAL CHECK (cover_crop_y IS NULL OR (cover_crop_y >= 0 AND cover_crop_y < 1));
+ALTER TABLE archives ADD COLUMN cover_crop_width REAL CHECK (cover_crop_width IS NULL OR (cover_crop_width > 0 AND cover_crop_width <= 1));
+ALTER TABLE archives ADD COLUMN cover_crop_height REAL CHECK (cover_crop_height IS NULL OR (cover_crop_height > 0 AND cover_crop_height <= 1));
+```
+
+- NULL を許す列と、列だけの CHECK は、表を作り直さずに足せる（0004 と同じ）
+- 既存の行は、すべて NULL（自動）。この版へ更新しても、サムネイルは変わらない
+- 範囲が画像の外へ出ないこと（x + 幅 ≦ 1 など）は、列をまたぐため CHECK にせず、アプリで確かめる（記録する前と、読み込むとき）
+- テスト: 既存の行が NULL になる。範囲の外の値（x = 1、幅 = 0、高さ = 1.5）は入らない
