@@ -3,7 +3,7 @@
 画像アーカイブ（ZIP / CBZ。RAR / 7z は閲覧と ZIP への変換）を、ライブラリとして管理しながら閲覧する Windows 用のビューアです。
 複数のフォルダにあるアーカイブを横断して探し、開いて見ながら、不要な画像をその場で削除できます。
 
-現在の版は v0.2.4（試用版）です。v0.2.0 で、設定画面、バックアップと復元、アプリの更新を加え、v0.2.1 で、ビューアから一覧に戻らずに、前後のアーカイブへ移れるようにし、v0.2.2 で、アプリの更新の間の表示を分かりやすくし、v0.2.3 で、RAR / 7z（CBR / CB7）の閲覧と、ZIP への変換を加え、v0.2.4 で、GIF / WebP の画像への対応と、新着の表示を加えました。
+現在の版は v0.2.5（試用版）です。v0.2.0 で、設定画面、バックアップと復元、アプリの更新を加え、v0.2.1 で、ビューアから一覧に戻らずに、前後のアーカイブへ移れるようにし、v0.2.2 で、アプリの更新の間の表示を分かりやすくし、v0.2.3 で、RAR / 7z（CBR / CB7）の閲覧と、ZIP への変換を加え、v0.2.4 で、GIF / WebP の画像への対応と、新着の表示を加え、v0.2.5 で、ショートカットの作成、アプリの中からのアンインストール、設定画面のタブ分けを加えました。
 
 > **English summary**: 35Viewer is a free, open-source Windows desktop application (WPF / .NET 10) for browsing and managing
 > image archives (ZIP / CBZ; RAR / 7z can be viewed and converted to ZIP). It indexes archives across multiple folders, shows them as a searchable library with thumbnails,
@@ -11,6 +11,7 @@
 > Version 0.2.0 adds a settings window (appearance, confirmations), backup and restore of the app data, and in-app updates.
 > Version 0.2.3 adds viewing RAR / 7z (CBR / CB7) archives and converting them to ZIP.
 > Version 0.2.4 adds GIF / WebP images and a "new" badge for newly found archives.
+> Version 0.2.5 adds Start Menu / Desktop shortcuts, an in-app uninstaller that never touches your archives, and a tabbed settings window.
 > Binaries are built by GitHub Actions from this repository and published as a ZIP on [GitHub Releases](https://github.com/k355566687/K35Viewer/releases).
 > See [Code signing policy](CODE_SIGNING.md), [Privacy](#プライバシー--privacy) and [Uninstall](#アンインストール--uninstall).
 
@@ -30,10 +31,16 @@ From v0.2.0 on, you can update from inside the app (Settings → "Check for upda
 
 ### アンインストール / Uninstall
 
-インストーラーはありません。展開したフォルダを削除してください。ライブラリの情報（DB、設定、バックアップ、サムネイル、ログ）も消す場合は、`%LOCALAPPDATA%\K35Viewer\` も削除してください（バックアップも消えます）。アーカイブ自体は削除されません。
+**アプリの中から**（v0.2.5 から）: 設定画面（ライブラリ画面の左下の「⚙ 設定」）の「アプリ」のタブの「アンインストール」で、「アンインストール…」を押します。
 
-There is no installer. To uninstall, delete the extracted folder. To also remove the library data (database, settings, backups, thumbnail cache and logs), delete `%LOCALAPPDATA%\K35Viewer\`. Your archives are not affected.
+- **消すもの**: プログラムのフォルダ（展開したフォルダ）、データのフォルダ（`%LOCALAPPDATA%\K35Viewer\`。DB、設定、バックアップ、サムネイル、ログ）、作ったショートカット
+- **消さないもの**: アーカイブ（管理フォルダの中のファイル）。管理フォルダが、プログラムやデータのフォルダの中にあるなど、アーカイブを巻き込むおそれがあるときは、実行しません（理由を表示します）
+- **バックアップ**: 削除の前に、データのバックアップを、選んだ場所（初めは「ダウンロード」フォルダ）へ保存できます。あとで入れ直したら、設定の「復元…」で戻せます
+- 元に戻せません（ごみ箱へは送りません）。「アンインストール」と入力しないと、押せません
 
+**手作業で**: インストーラーはありません。展開したフォルダを削除してください。ライブラリの情報（DB、設定、バックアップ、サムネイル、ログ）も消す場合は、`%LOCALAPPDATA%\K35Viewer\` も削除してください（バックアップも消えます）。アーカイブ自体は削除されません。ショートカットを作っていた場合は、先に、設定画面の「ショートカット」で「削除」を押してください（そのまま展開したフォルダを消すと、ショートカットが残ります）。
+
+In the app (v0.2.5 and later): Settings → "App" tab → "Uninstall…". It removes the program folder, the data folder (`%LOCALAPPDATA%\K35Viewer\`) and the shortcuts it created, and **never touches your archives**: it refuses to run if a library folder lies inside the folders to be deleted, or if archive-like files are found in the program folder. You can save a backup of your data to a folder you choose (the Downloads folder by default) first, and restore it after reinstalling. Deletion is permanent (nothing goes to the Recycle Bin) and you must type a confirmation word. By hand: there is no installer, so delete the extracted folder, and delete `%LOCALAPPDATA%\K35Viewer\` to remove the library data too; delete the shortcuts first from the Settings window if you created any. Your archives are not affected.
 ## 主な機能
 
 - **ライブラリ**
@@ -55,10 +62,12 @@ There is no installer. To uninstall, delete the extracted folder. To also remove
   - 閲覧（スキャン、サムネイル、ビューア）。形式は、ファイルの中身で判定する
   - ZIP への変換（右クリックメニュー、またはビューアのツールバーから）。閲覧位置とサムネイルを引き継ぎ、元のファイルはごみ箱へ
   - 画像の削除は、ZIP に変換してから
-- **設定画面**（v0.2.0）
+- **設定画面**（v0.2.0）。v0.2.5 から、「全般」「データ」「アプリ」の3つのタブに分け、関係する項目を枠で囲んだ
   - 外観（ダーク / ライト / Windowsの設定に合わせる）。再起動せずに、その場で切り替わる
   - 確認のオン/オフ（アーカイブから離れるとき、アーカイブを削除するとき）
   - サムネイルのキャッシュの大きさの表示と削除
+- **ショートカット**（v0.2.5）: スタートメニューとデスクトップに、35Viewer のショートカットを作れる。はじめて起動したときに、作るかを一度だけ確認する（確認なしでは作らない）。設定画面からも、作る・作り直す・削除ができる。タスクバーには、スタートメニューの「35Viewer」を右クリックして「タスクバーにピン留めする」で置く
+- **アンインストール**（v0.2.5）: 設定画面から、プログラム、データ、ショートカットを削除できる。アーカイブには、さわらない（上の「アンインストール」を参照）
 - **バックアップと復元**（v0.2.0）: アプリのデータを1つのファイルに保存し、その時点に戻せる
 - **アプリの更新**（v0.2.0）: 新しい版を確かめ、アプリの中で入れ替える。押したときだけ通信する
 
@@ -66,12 +75,13 @@ There is no installer. To uninstall, delete the extracted folder. To also remove
 
 ## 設定・バックアップ・更新
 
-ライブラリ画面の左下の「⚙ 設定」で、設定画面を開きます（別のウィンドウです。変更は、その場で反映して保存します）。
+ライブラリ画面の左下の「⚙ 設定」で、設定画面を開きます（別のウィンドウです。変更は、その場で反映して保存します）。項目は、「全般」「データ」「アプリ」の3つのタブに分かれています（外観と確認は「全般」、保存場所・キャッシュ・バックアップと復元は「データ」、ショートカット・アプリの更新・アンインストール・情報は「アプリ」）。
 
 ### 設定
 
 - **外観**: ダーク（既定）、ライト、Windowsの設定に合わせる
 - **確認**: 「アーカイブから離れるとき、削除予約を反映するか確認する」と「アーカイブを削除するとき、確認する」を、それぞれオフにできます。オフにしても、更新できないときの確認と、ごみ箱を使えない場所での完全な削除の確認は、必ず表示します（元に戻せないため）
+- **ショートカット**: スタートメニューとデスクトップに、35Viewer のショートカットを作ります。はじめて起動したときの確認で選ぶほか、設定画面の「アプリ」のタブからも、作る・作り直す・削除ができます（現在の利用者用の場所に作ります。管理者権限は使いません）。展開したフォルダを移したときは、状態に「リンク先が今の場所と違います」と出るので、「作り直す」で直せます。ショートカットは、アプリの更新のあとも、そのまま使えます。展開した場所が一時的な場所（ZIP の中から直接起動した、など）のときは、はじめての確認を出さず、設定画面から作るときは、確認します
 - **データ**: 保存場所とサムネイルのキャッシュの場所を、エクスプローラーで開けます。キャッシュは、大きさを確かめて、削除できます（削除したサムネイルは、順に作り直します。アーカイブ自体は変わりません）。スキャン中とサムネイルの作成中は、削除できません
 
 ### バックアップと復元
