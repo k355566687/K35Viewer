@@ -18,6 +18,7 @@ public class ArchiveFormatsMigrationTests
     private static IReadOnlyList<Migration> UpToSecond => [.. All.Where(m => m.Version <= 2)];
 
     private static IReadOnlyList<Migration> UpToThird => [.. All.Where(m => m.Version <= 3)];
+    private static IReadOnlyList<Migration> UpToFourth => [.. All.Where(m => m.Version <= 4)];
 
     private static async Task<string> ScalarStringAsync(SqliteConnection connection, string sql)
     {
@@ -218,13 +219,29 @@ public class ArchiveFormatsMigrationTests
         _ = await db.Runner.MigrateAsync(connection, UpToThird, Ct);
         await SeedAsync(connection);
 
-        var version = await db.Runner.MigrateAsync(connection, All, Ct);
+        var version = await db.Runner.MigrateAsync(connection, UpToFourth, Ct);
 
         Assert.Equal(4, version);
         Assert.Equal(0, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives WHERE is_new <> 0")); // 更新の直後に、全部が新着にならない
         Assert.Equal(3, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives"));
         _ = await Assert.ThrowsAsync<SqliteException>(() => TempDatabase.ExecuteAsync(
             connection, "UPDATE archives SET is_new = 2 WHERE id = 1"));
+    }
+
+    [Fact]
+    public async Task 最後に開いた日時の列は_閲覧位置を保存した日時を引き継ぎ_ないものはNULLのまま()
+    {
+        using var db = new TempDatabase();
+        await using var connection = await db.OpenAsync();
+        _ = await db.Runner.MigrateAsync(connection, UpToFourth, Ct);
+        await SeedAsync(connection);
+        await TempDatabase.ExecuteAsync(connection, "UPDATE archives SET last_viewed_at = NULL");
+        await TempDatabase.ExecuteAsync(connection, "UPDATE archives SET last_viewed_at = 777 WHERE id = 1");
+        var version = await db.Runner.MigrateAsync(connection, All, Ct);
+        Assert.Equal(5, version);
+        Assert.Equal(777, await TempDatabase.ScalarLongAsync(connection, "SELECT last_opened_at FROM archives WHERE id = 1"));
+        Assert.Equal(2, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives WHERE last_opened_at IS NULL"));
+        Assert.Equal(3, await TempDatabase.ScalarLongAsync(connection, "SELECT COUNT(*) FROM archives"));
     }
 
     [Fact]

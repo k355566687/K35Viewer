@@ -1,6 +1,7 @@
 ﻿using System.ComponentModel;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using K35Viewer.Infrastructure.Settings;
 using K35Viewer.Services;
 using Microsoft.Extensions.Logging;
 
@@ -65,6 +66,46 @@ public sealed partial class MainViewModel : ObservableObject
         Viewer.DeleteBlocked += (_, message) => _notifications.ShowInfo(message);
         Viewer.ConvertToZipRequested += OnConvertToZipRequested;
         Viewer.PropertyChanged += OnViewerPropertyChanged;
+    }
+
+    /// <summary>前回の終了時の、ウィンドウの位置と大きさ（Issue #26）。保存されていなければ null。</summary>
+    public WindowPlacement? SavedWindowPlacement => _settings?.Current.MainWindowPlacement;
+
+    /// <summary>
+    /// アプリを終了するときに呼ぶ。次の起動で戻せるよう、ウィンドウの位置と大きさ、ビューアで開いていたアーカイブを記録する
+    /// （ビューアで開いていなければ、アーカイブは記録しない）。
+    /// </summary>
+    public void SaveExitState(WindowPlacement? placement)
+    {
+        long? openArchiveId = IsViewerVisible ? Viewer.Session?.ArchiveId : null;
+        _settings?.Update(s => s with
+        {
+            MainWindowPlacement = placement ?? s.MainWindowPlacement,
+            LastOpenArchiveId = openArchiveId,
+        });
+    }
+
+    /// <summary>
+    /// 起動したあと、設定がオンなら、前回の終了時に開いていたアーカイブを、続きから開く（Issue #26）。
+    /// 開けなかった場合（移動・削除された、など）は、理由が通知され、ライブラリ画面で始まる。
+    /// ライブラリの初期化を先に済ませる（アーカイブを閉じたときに、一覧がすぐ使えるようにするため）。
+    /// </summary>
+    public async Task ResumeLastArchiveAsync()
+    {
+        try
+        {
+            await Library.InitializeAsync();
+            if (_settings?.Current is { ResumeLastArchive: true, LastOpenArchiveId: { } archiveId })
+            {
+                // 続けて開くのは、1回だけ（開けなかったときに、毎回通知しないよう、記録は消しておく）
+                _settings.Update(s => s with { LastOpenArchiveId = null });
+                OnOpenRequested(this, archiveId);
+            }
+        }
+        catch (Exception ex)
+        {
+            LogResumeFailed(_logger, ex);
+        }
     }
 
     public LibraryViewModel Library { get; }
@@ -489,6 +530,9 @@ public sealed partial class MainViewModel : ObservableObject
             OnPropertyChanged(nameof(Title));
         }
     }
+
+    [LoggerMessage(Level = LogLevel.Error, Message = "前回開いていたアーカイブを続きから開く処理に失敗しました。")]
+    private static partial void LogResumeFailed(ILogger logger, Exception exception);
 
     [LoggerMessage(Level = LogLevel.Error, Message = "ビューアを開けませんでした。ArchiveId={Id}")]
     private static partial void LogOpenFailed(ILogger logger, Exception exception, long id);

@@ -1,4 +1,4 @@
-﻿using System.Globalization;
+using System.Globalization;
 using System.Windows.Input;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -59,6 +59,8 @@ public sealed partial class LibraryViewModel(
     internal Func<Task>? QueryCompletedForTesting { get; set; }
     private int _runningScans;
     private bool _initialized;
+    // 前回の状態を戻している間は、一覧の取得と、設定の保存をしない
+    private bool _restoringState;
     private bool _hasLoadedArchives;
     private bool _thumbnailLoopRunning;
     private bool _thumbnailRerun;
@@ -194,6 +196,20 @@ public sealed partial class LibraryViewModel(
         if (settings is not null)
         {
             IsThumbnailView = settings.Current.LibraryViewMode == LibraryViewMode.Thumbnail;
+
+            // 前回の並べ替えと絞り込みで始める（Issue #26）。一覧は、このあとの読み込みで1回だけ取得する
+            _restoringState = true;
+            try
+            {
+                SelectedSortOption = AllSortOptions.FirstOrDefault(o => o.Key == settings.Current.LibrarySortKey)
+                    ?? AllSortOptions[0];
+                IsDescending = settings.Current.LibrarySortDescending;
+                ShowNewOnly = settings.Current.LibraryShowNewOnly;
+            }
+            finally
+            {
+                _restoringState = false;
+            }
         }
 
         _initialized = true;
@@ -345,6 +361,75 @@ public sealed partial class LibraryViewModel(
         if (item is not null)
         {
             OpenRequested?.Invoke(this, item.Id);
+        }
+    }
+
+    /// <summary>最近開いたアーカイブの一覧に出す件数（Issue #27）。</summary>
+    public const int RecentLimit = 10;
+
+    /// <summary>最近開いたアーカイブ（新しい順）。「最近開いた」を開くたびに、DBから読み直す。</summary>
+    [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(HasRecentArchives))]
+    [NotifyCanExecuteChangedFor(nameof(ClearRecentCommand))]
+    private IReadOnlyList<ArchiveListItem> _recentArchives = [];
+
+    /// <summary>「最近開いた」の一覧が開いているか（ポップアップの表示と連動する）。</summary>
+    [ObservableProperty]
+    private bool _isRecentOpen;
+
+    public bool HasRecentArchives => RecentArchives.Count > 0;
+
+    /// <summary>最近開いたアーカイブを読み込み直す。一覧に出ているものと同じく、DBの値だけで組み立てる。</summary>
+    public async Task LoadRecentAsync()
+    {
+        try
+        {
+            var result = await library.QueryArchivesAsync(
+                new ArchiveQuery(Limit: RecentLimit, RecentOnly: true), _cts.Token);
+            RecentArchives = [.. result.Items.Select(item => new ArchiveListItem(item, imageLoader))];
+        }
+        catch (OperationCanceledException)
+        {
+            // アプリ終了中
+        }
+        catch (Exception ex)
+        {
+            LogQueryFailed(logger, ex);
+        }
+    }
+
+    partial void OnIsRecentOpenChanged(bool value)
+    {
+        if (value)
+        {
+            _ = LoadRecentAsync();
+        }
+    }
+
+    /// <summary>最近開いたアーカイブを開く。一覧を閉じてから、ビューアで開く。</summary>
+    [RelayCommand]
+    private void OpenRecent(ArchiveListItem? item)
+    {
+        IsRecentOpen = false;
+        OpenArchive(item);
+    }
+
+    /// <summary>最近開いたアーカイブの履歴を消す。アーカイブそのものや、続きから読む位置は消さない。</summary>
+    [RelayCommand(CanExecute = nameof(HasRecentArchives))]
+    private async Task ClearRecentAsync()
+    {
+        try
+        {
+            _ = await library.ClearRecentAsync(_cts.Token);
+            RecentArchives = [];
+        }
+        catch (OperationCanceledException)
+        {
+            // アプリ終了中
+        }
+        catch (Exception ex)
+        {
+            LogQueryFailed(logger, ex);
         }
     }
 
@@ -714,11 +799,38 @@ public sealed partial class LibraryViewModel(
 
     partial void OnSearchTextChanged(string value) => _ = RefreshArchivesAsync(SearchDebounce);
 
-    partial void OnSelectedSortOptionChanged(SortOption value) => _ = RefreshArchivesAsync(null);
+    partial void OnSelectedSortOptionChanged(SortOption value)
+    {
+        if (_restoringState)
+        {
+            return;
+        }
 
-    partial void OnIsDescendingChanged(bool value) => _ = RefreshArchivesAsync(null);
+        settings?.Update(s => s with { LibrarySortKey = value.Key });
+        _ = RefreshArchivesAsync(null);
+    }
 
-    partial void OnShowNewOnlyChanged(bool value) => _ = RefreshArchivesAsync(null);
+    partial void OnIsDescendingChanged(bool value)
+    {
+        if (_restoringState)
+        {
+            return;
+        }
+
+        settings?.Update(s => s with { LibrarySortDescending = value });
+        _ = RefreshArchivesAsync(null);
+    }
+
+    partial void OnShowNewOnlyChanged(bool value)
+    {
+        if (_restoringState)
+        {
+            return;
+        }
+
+        settings?.Update(s => s with { LibraryShowNewOnly = value });
+        _ = RefreshArchivesAsync(null);
+    }
 
     partial void OnArchivesChanged(IReadOnlyList<ArchiveListItem> value) => RebuildThumbnailRows();
 

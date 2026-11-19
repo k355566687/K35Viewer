@@ -69,6 +69,12 @@ public sealed partial class LibraryService(
             (connection, transaction, token) => archives.ClearAllNewAsync(connection, transaction, folderId, token),
             ct);
 
+    /// <summary>最近開いたアーカイブの履歴を消す（Issue #27）。アーカイブそのものや、閲覧位置は変えない。消した件数を返す。</summary>
+    public Task<int> ClearRecentAsync(CancellationToken ct = default) =>
+        writer.ExecuteAsync(
+            (connection, transaction, token) => archives.ClearAllOpenedAsync(connection, transaction, token),
+            ct);
+
     /// <summary>条件に一致するアーカイブを検索する(UC-03 / UC-04)。ZIP本体は開かず、SQLiteだけで応答する。</summary>
     public Task<PagedResult<ArchiveSummary>> QueryArchivesAsync(ArchiveQuery query, CancellationToken ct = default) =>
         archives.QueryAsync(query, ct);

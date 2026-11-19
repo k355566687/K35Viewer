@@ -54,6 +54,11 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
             conditions.Add("a.is_new = 1");
         }
 
+        if (query.RecentOnly)
+        {
+            conditions.Add("a.last_opened_at IS NOT NULL");
+        }
+
         var terms = (query.SearchText ?? string.Empty)
             .Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
         for (var i = 0; i < terms.Length; i++)
@@ -64,7 +69,7 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
 
         var where = string.Join(" AND ", conditions);
         var direction = query.Descending ? "DESC" : "ASC";
-        var orderBy = query.SortKey switch
+        var orderBy = query.RecentOnly ? "a.last_opened_at DESC" : query.SortKey switch
         {
             ArchiveSortKey.FileName => $"a.file_name COLLATE NOCASE {direction}",
             ArchiveSortKey.LastWriteTime => $"a.last_write_time {direction}",
@@ -91,7 +96,7 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
         // サムネイルは READY のほか、再生成待ち(STALE)の間も古い画像を表示し続ける
         var listSql =
             $"{cte} SELECT a.id, a.file_name, f.full_path, a.file_size, a.last_write_time, a.image_count, a.analysis_status, " +
-            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status, lf.path, a.is_new " +
+            "CASE WHEN t.status IN ('READY', 'STALE') THEN t.relative_path END, t.status, lf.path, a.is_new, a.last_opened_at " +
             "FROM archives a JOIN folders f ON a.folder_id = f.id " +
             "JOIN library_folders lf ON f.library_folder_id = lf.id " +
             $"LEFT JOIN thumbnail_cache t ON t.archive_id = a.id WHERE {where} " +
@@ -123,7 +128,8 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
                     reader.GetNullableString(7),
                     reader.GetNullableString(8),
                     reader.GetString(9),
-                    reader.GetInt64(10) != 0));
+                    reader.GetInt64(10) != 0,
+                    reader.IsDBNull(11) ? null : reader.GetInt64(11)));
             }
         }
 
@@ -289,6 +295,30 @@ public sealed class ArchiveRepository(SqliteConnectionFactory connectionFactory)
             "UPDATE archives SET is_new = 0 WHERE id = $id AND is_new = 1",
             ("$id", id));
         return await command.ExecuteNonQueryAsync(ct) > 0;
+    }
+
+    /// <summary>アーカイブを開いた日時を記録する（最近開いたアーカイブの一覧。Issue #27）。</summary>
+    public async Task MarkOpenedAsync(
+        SqliteConnection connection, SqliteTransaction transaction, long id, long now, CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            "UPDATE archives SET last_opened_at = $now WHERE id = $id",
+            ("$id", id),
+            ("$now", now));
+        _ = await command.ExecuteNonQueryAsync(ct);
+    }
+
+    /// <summary>最近開いたアーカイブの履歴を、すべて消す。消した件数を返す。アーカイブそのものや閲覧位置は変えない。</summary>
+    public async Task<int> ClearAllOpenedAsync(
+        SqliteConnection connection, SqliteTransaction transaction, CancellationToken ct)
+    {
+        await using var command = SqlHelper.CreateCommand(
+            connection,
+            transaction,
+            "UPDATE archives SET last_opened_at = NULL WHERE last_opened_at IS NOT NULL");
+        return await command.ExecuteNonQueryAsync(ct);
     }
 
     /// <summary>

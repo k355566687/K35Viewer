@@ -139,6 +139,11 @@ public sealed class ArchiveListItem(ArchiveSummary summary, ThumbnailImageLoader
 
     public string FileSizeText => ByteSizeFormatter.Format(_summary.FileSize);
 
+    /// <summary>最後に開いた日時。開いたことがなければ空文字（最近開いたアーカイブの一覧で使う）。</summary>
+    public string LastOpenedText => _summary.LastOpenedAt is { } opened
+        ? UnixTime.FromUnixSeconds(opened).ToLocalTime().ToString("yyyy/MM/dd HH:mm", CultureInfo.CurrentCulture)
+        : string.Empty;
+
     public string LastWriteTimeText => UnixTime.FromUnixSeconds(_summary.LastWriteTime)
         .ToLocalTime()
         .ToString("yyyy/MM/dd HH:mm", CultureInfo.CurrentCulture);

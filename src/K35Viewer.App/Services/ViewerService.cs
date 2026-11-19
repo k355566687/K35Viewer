@@ -57,7 +57,7 @@ public sealed partial class ViewerService(
                     InitialIndex(info, archive.Images),
                     new ArchiveFileState(state.FileSize, state.LastWriteTime));
                 LogOpened(logger, info.Id, session.Count, session.CurrentIndex);
-                await ClearNewAsync(info.Id);
+                await ClearNewAndMarkOpenedAsync(info.Id);
                 return new ViewerOpenResult(session, null);
 
             case ArchiveAnalysisStatus.Empty:
@@ -97,15 +97,20 @@ public sealed partial class ViewerService(
     }
 
     /// <summary>
-    /// アーカイブを開いたので、「新着」の印を外す（Issue #16）。印を外せなくても、閲覧は妨げない。
-    /// 開いた時点で外す（最初の頁を表示するまで、閲覧位置を保存するまでは待たない）。
+    /// アーカイブを開いたので、「新着」の印を外し（Issue #16）、開いた日時を記録する（Issue #27）。
+    /// 記録できなくても、閲覧は妨げない。開いた時点で行う（最初の頁を表示するまで、閲覧位置を保存するまでは待たない）。
     /// </summary>
-    private async Task ClearNewAsync(long archiveId)
+    private async Task ClearNewAndMarkOpenedAsync(long archiveId)
     {
         try
         {
             _ = await writer.ExecuteAsync(
-                (connection, transaction, token) => archives.ClearNewAsync(connection, transaction, archiveId, token),
+                async (connection, transaction, token) =>
+                {
+                    _ = await archives.ClearNewAsync(connection, transaction, archiveId, token);
+                    await archives.MarkOpenedAsync(connection, transaction, archiveId, UnixTime.Now(), token);
+                    return true;
+                },
                 CancellationToken.None);
         }
         catch (Exception ex) when (ex is Microsoft.Data.Sqlite.SqliteException or IOException or InvalidOperationException)
