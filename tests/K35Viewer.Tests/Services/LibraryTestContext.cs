@@ -462,11 +462,14 @@ internal sealed class LibraryTestContext : IDisposable
         UpdateService? updates = null,
         FakeUpdateDialogs? updateDialogs = null,
         FakeShortcutService? shortcuts = null,
-        FakeShortcutDialogs? shortcutDialogs = null) =>
+        FakeShortcutDialogs? shortcutDialogs = null,
+        FakeUninstallService? uninstall = null,
+        FakeUninstallDialogs? uninstallDialogs = null) =>
         new(settings, new K35Viewer.Infrastructure.FileSystem.AppPaths(CacheDirectory), Explorer, cache,
             CreateBackupService(settings, clock), CreateRestoreService(settings, clock), dialogs ?? new FakeBackupDialogs(),
             restarter ?? new FakeAppRestarter(), updates ?? CreateUpdateService(settings: settings),
             updateDialogs ?? new FakeUpdateDialogs(), shortcuts ?? new FakeShortcutService(), shortcutDialogs ?? new FakeShortcutDialogs(),
+            uninstall ?? new FakeUninstallService(), uninstallDialogs ?? new FakeUninstallDialogs(),
             Notifications, NullLogger<K35Viewer.ViewModels.SettingsViewModel>.Instance);
 
     /// <summary>更新のサービスを作る。通信は、偽の相手に向ける（実際の通信はしない）。</summary>

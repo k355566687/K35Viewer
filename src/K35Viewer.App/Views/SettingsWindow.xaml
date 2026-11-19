@@ -352,6 +352,35 @@
                                                            Text="更新の確認とダウンロードのときだけ、GitHub（api.github.com、github.com）と通信します。利用者のデータは送りません。" />
                             </StackPanel>
                         </Border>
+                        <Border Style="{StaticResource Card}" AutomationProperties.Name="アンインストール">
+                            <StackPanel>
+                                <TextBlock Text="アンインストール" Style="{StaticResource CardHeader}" />
+                                <TextBlock Style="{StaticResource Note}"
+                                           Margin="0"
+                                           Text="35Viewer のプログラムと、データ（DB、設定、サムネイル、ログ、バックアップ）を削除します。作ったショートカットも、あわせて削除します。アーカイブ（管理フォルダの中のファイル）には、さわりません。" />
+                                <Button Content="アンインストール…"
+                                        HorizontalAlignment="Left"
+                                        Margin="0,10,0,0"
+                                        Padding="12,4"
+                                        Command="{Binding UninstallCommand}"
+                                        ToolTip="{Binding UninstallToolTip}"
+                                        ToolTipService.ShowOnDisabled="True"
+                                        AutomationProperties.Name="アンインストールする" />
+                                <TextBlock Text="{Binding UninstallNote}"
+                                           AutomationProperties.Name="アンインストールについての案内">
+                                    <TextBlock.Style>
+                                        <Style TargetType="TextBlock" BasedOn="{StaticResource Note}">
+                                            <Style.Triggers>
+                                                <DataTrigger Binding="{Binding UninstallNote}" Value="">
+                                                    <Setter Property="Visibility" Value="Collapsed" />
+                                                </DataTrigger>
+                                            </Style.Triggers>
+                                        </Style>
+                                    </TextBlock.Style>
+                                </TextBlock>
+                            </StackPanel>
+                        </Border>
+
                         <Border Style="{StaticResource Card}" AutomationProperties.Name="情報">
                             <StackPanel>
                                 <TextBlock Text="情報" Style="{StaticResource CardHeader}" />

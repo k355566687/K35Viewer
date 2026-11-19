@@ -9,6 +9,7 @@ using K35Viewer.Infrastructure.Viewer;
 using K35Viewer.Infrastructure.Logging;
 using K35Viewer.Infrastructure.Settings;
 using K35Viewer.Infrastructure.Shortcuts;
+using K35Viewer.Infrastructure.Uninstall;
 using K35Viewer.Infrastructure.Updates;
 using K35Viewer.Services;
 using K35Viewer.ViewModels;
@@ -33,6 +34,13 @@ public partial class App : Application
         if (UpdateApplier.ParseApplyTarget(e.Args) is { } updateTarget)
         {
             await RunUpdateApplyAsync(e.Args, updateTarget);
+            return;
+        }
+
+        // アンインストールの控えとしての起動（消す処理を引き継ぐ）。単一起動の確認も、データの読み込みも、しない（消すため）。結果のウィンドウだけを出す
+        if (UninstallHandoff.ParsePlanFile(e.Args) is { } uninstallPlan)
+        {
+            await RunUninstallAsync(e.Args, uninstallPlan);
             return;
         }
 
@@ -106,6 +114,19 @@ public partial class App : Application
             Path.GetTempPath(),
             sp.GetRequiredService<ILogger<ShortcutService>>()));
         builder.Services.AddSingleton<IShortcutDialogs, WpfShortcutDialogs>();
+        builder.Services.AddSingleton(_ => UninstallPlanner.CreateDefault());
+        builder.Services.AddSingleton<IUninstallLauncher, WpfUninstallLauncher>();
+        builder.Services.AddSingleton<IUninstallDialogs, WpfUninstallDialogs>();
+        builder.Services.AddSingleton<IUninstallService>(sp => new UninstallService(
+            sp.GetRequiredService<UninstallPlanner>(),
+            sp.GetRequiredService<IShortcutService>(),
+            sp.GetRequiredService<LibraryService>(),
+            sp.GetRequiredService<BackupService>(),
+            sp.GetRequiredService<IUninstallLauncher>(),
+            sp.GetRequiredService<AppPaths>(),
+            Environment.ProcessPath,
+            KnownFolders.Downloads(),
+            sp.GetRequiredService<ILogger<UninstallService>>()));
         builder.Services.AddSingleton<ShortcutFirstRun>();
         builder.Services.AddTransient<SettingsViewModel>();
         builder.Services.AddSingleton<Func<SettingsViewModel>>(sp => sp.GetRequiredService<SettingsViewModel>);
@@ -269,6 +290,75 @@ builder.Services.AddSingleton<IThumbnailCacheMaintenance>(sp => sp.GetRequiredSe
         catch (InvalidOperationException)
         {
             // プロセスがすでにない
+        }
+    }
+    /// <summary>
+    /// アンインストールを行う（控えの実行ファイルとして、%TEMP% の写しから動いている。内部アーキテクチャ設計書 44章）。
+    /// 元のアプリの終了を待ち、（終わっていなければ、何も消さず）プログラムのフォルダ、データ、ショートカットを消して、結果を出す。
+    /// 閉じられたら、控え自身（%TEMP% の写し）を、少し待ってから消すよう、切り離した cmd に頼んで、終了する。
+    /// </summary>
+    private async Task RunUninstallAsync(string[] args, string planFile)
+    {
+        ShutdownMode = ShutdownMode.OnExplicitShutdown;
+        var targets = UninstallHandoff.ReadPlan(planFile);
+        if (targets is null)
+        {
+            ConfirmDialog.Inform(null, "35Viewer のアンインストール", "アンインストールの予定を読めなかったため、何も削除していません。");
+            Shutdown(1);
+            return;
+        }
+
+        // 外観は、設定のファイルに合わせる（読めなければ、既定のまま）。データを消す前に、読んでおく
+        try
+        {
+            ThemeManager.Apply(new SettingsStore(Path.Combine(targets.DataDirectory, "settings.json")).Load().Settings.Theme);
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            // 既定の外観で、表示する
+        }
+
+        var window = new UninstallWindow();
+        window.Show();
+        var progress = new ContextProgress<string>(SynchronizationContext.Current, window.SetStatus);
+
+        var report = await Task.Run(() =>
+        {
+            // 元のアプリが終わるのを待つ。終わっていなければ、使用中のファイルを、途中まで消すことになるため、何も消さない
+            RestartArguments.WaitForPreviousProcess(args);
+            return IsStillRunning(RestartArguments.ParseWaitProcessId(args))
+                ? UninstallReport.AbortedWith(["35Viewer が終了しなかったため、何も削除していません。アプリを終了してから、もう一度、アンインストールしてください"])
+                : new UninstallExecutor(UninstallPlanner.CreateDefault()).Execute(targets, progress);
+        });
+
+        window.ShowReport(report);
+        var closed = new TaskCompletionSource();
+        window.Closed += (_, _) => closed.TrySetResult();
+        await closed.Task;
+
+        _ = UninstallHandoff.TryScheduleCleanup(Path.GetDirectoryName(planFile)!, Path.GetTempPath());
+        Shutdown(report.Succeeded ? 0 : 1);
+    }
+
+    private static bool IsStillRunning(int? processId)
+    {
+        if (processId is not { } id)
+        {
+            return false;
+        }
+
+        try
+        {
+            using var process = System.Diagnostics.Process.GetProcessById(id);
+            return !process.HasExited;
+        }
+        catch (ArgumentException)
+        {
+            return false;
+        }
+        catch (InvalidOperationException)
+        {
+            return false;
         }
     }
     private void ReportUpdateResult(UpdateResult? result)

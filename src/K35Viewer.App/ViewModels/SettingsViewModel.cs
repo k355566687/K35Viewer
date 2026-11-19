@@ -3,6 +3,7 @@ using CommunityToolkit.Mvvm.Input;
 using K35Viewer.Infrastructure;
 using K35Viewer.Infrastructure.FileSystem;
 using K35Viewer.Infrastructure.Settings;
+using K35Viewer.Infrastructure.Uninstall;
 using K35Viewer.Infrastructure.Updates;
 using K35Viewer.Services;
 using Microsoft.Extensions.Logging;
@@ -26,6 +27,8 @@ public sealed partial class SettingsViewModel(
     IUpdateDialogs updateDialogs,
     IShortcutService shortcuts,
     IShortcutDialogs shortcutDialogs,
+    IUninstallService uninstall,
+    IUninstallDialogs uninstallDialogs,
     INotificationService notifications,
     ILogger<SettingsViewModel> logger) : ObservableObject, IDisposable
 {
@@ -192,6 +195,8 @@ public sealed partial class SettingsViewModel(
     [NotifyCanExecuteChangedFor(nameof(CheckForUpdateCommand))]
     [NotifyCanExecuteChangedFor(nameof(InstallUpdateCommand))]
     [NotifyCanExecuteChangedFor(nameof(CancelUpdateCommand))]
+    [NotifyCanExecuteChangedFor(nameof(UninstallCommand))]
+    [NotifyPropertyChangedFor(nameof(UninstallToolTip))]
     private bool _isUpdateBusy;
 
     /// <summary>確認で見つかった、新しい版。なければ null。</summary>
@@ -415,7 +420,7 @@ public sealed partial class SettingsViewModel(
 
         _started = true;
         thumbnailCache.PropertyChanged += OnThumbnailCacheChanged;
-        await Task.WhenAll(RefreshCacheSizeAsync(), RefreshLastBackupAsync(), RefreshShortcutsAsync());
+        await Task.WhenAll(RefreshCacheSizeAsync(), RefreshLastBackupAsync(), RefreshShortcutsAsync(), RefreshUninstallAsync());
     }
 
     // ショートカット（要件定義 24.8。GitHub の Issue #23）
@@ -559,6 +564,115 @@ public sealed partial class SettingsViewModel(
         RemoveDesktopShortcutCommand.NotifyCanExecuteChanged();
     }
 
+    // アンインストール（要件定義 24.9。GitHub の Issue #24）
+
+    /// <summary>「アンインストール」の枠の下に出す案内（実行できない理由など）。実行できるときは、空。</summary>
+    [ObservableProperty]
+    private string _uninstallNote = string.Empty;
+
+    private bool _uninstallPlanned;
+    private bool _uninstallBlocked;
+    private bool _isUninstalling;
+
+    /// <summary>「アンインストール…」を押せない理由（押せるときは null）。</summary>
+    private string? UninstallBlockedReason =>
+        _isUninstalling ? "アンインストールの準備をしています"
+        : !_uninstallPlanned ? "調べています…"
+        : _uninstallBlocked ? "安全のため、アンインストールできません（下の理由を確認してください）"
+        : IsUpdateBusy ? "アプリの更新の確認や準備の間は、アンインストールできません"
+        : thumbnailCache.ClearBlockedReason is { } busy ? busy
+        : null;
+
+    /// <summary>「アンインストール…」のツールチップ。押せないときは、その理由を示す。</summary>
+    public string UninstallToolTip =>
+        UninstallBlockedReason
+        ?? "35Viewer のプログラムとデータを削除します。アーカイブには、さわりません。確認のダイアログが出ます";
+
+    private bool CanUninstall() => UninstallBlockedReason is null;
+
+    /// <summary>
+    /// アンインストールする。確認のダイアログ（何を消し、何を消さないか。バックアップの保存先。確認の入力）のあと、
+    /// 消す処理を引き継ぐ控えを起動して、このアプリは終了する。バックアップを保存できなかったときなどは、何も消さずに、理由を知らせる。
+    /// </summary>
+    [RelayCommand(CanExecute = nameof(CanUninstall))]
+    private async Task UninstallAsync()
+    {
+        var started = false;
+        _isUninstalling = true;
+        NotifyUninstallChanged();
+        try
+        {
+            // ダイアログを出す直前に、もう一度、安全を確かめる
+            var plan = await uninstall.PlanAsync();
+            ApplyUninstallPlan(plan);
+            if (!plan.CanRun)
+            {
+                notifications.ShowError(plan.Blockers[0]);
+                return;
+            }
+
+            var choice = uninstallDialogs.Prompt(plan, uninstall.DefaultBackupFolder, folder => uninstall.ValidateBackupFolder(plan, folder));
+            if (choice is null)
+            {
+                return;
+            }
+
+            notifications.ShowInfo("アンインストールの準備をしています…");
+            var result = await uninstall.StartAsync(plan, choice.BackupFolder);
+            started = result.Started; // 始められたら、このアプリは終了する
+            if (!result.Started)
+            {
+                notifications.ShowError(result.Error ?? "アンインストールを始められませんでした。何も削除していません");
+            }
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            LogUninstallFailed(logger, ex);
+            notifications.ShowError("アンインストールを始められませんでした。何も削除していません");
+        }
+        finally
+        {
+            // 始められたら、アプリが終了するまで、押せないままにする（もう一度、始めないため）
+            if (!started)
+            {
+                _isUninstalling = false;
+                NotifyUninstallChanged();
+            }
+        }
+    }
+
+    private async Task RefreshUninstallAsync()
+    {
+        try
+        {
+            ApplyUninstallPlan(await uninstall.PlanAsync());
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or Microsoft.Data.Sqlite.SqliteException)
+        {
+            LogUninstallFailed(logger, ex);
+            _uninstallPlanned = true;
+            _uninstallBlocked = true;
+            UninstallNote = "アンインストールできるかを、調べられませんでした。";
+            NotifyUninstallChanged();
+        }
+    }
+
+    private void ApplyUninstallPlan(UninstallPlan plan)
+    {
+        _uninstallPlanned = true;
+        _uninstallBlocked = !plan.CanRun;
+        UninstallNote = plan.CanRun ? string.Empty : string.Join(Environment.NewLine, plan.Blockers);
+        NotifyUninstallChanged();
+    }
+
+    private void NotifyUninstallChanged()
+    {
+        OnPropertyChanged(nameof(UninstallToolTip));
+        UninstallCommand.NotifyCanExecuteChanged();
+    }
+
+    [LoggerMessage(Level = LogLevel.Warning, Message = "アンインストールの準備で、問題が起きました。")]
+    private static partial void LogUninstallFailed(ILogger logger, Exception exception);
     /// <summary>設定画面を閉じるときに呼ぶ（ライブラリ側の通知の購読をやめる）。</summary>
     public void Dispose()
     {
@@ -574,7 +688,9 @@ public sealed partial class SettingsViewModel(
         }
 
         OnPropertyChanged(nameof(ClearCacheToolTip));
+        OnPropertyChanged(nameof(UninstallToolTip));
         ClearThumbnailCacheCommand.NotifyCanExecuteChanged();
+        UninstallCommand.NotifyCanExecuteChanged();
         if (thumbnailCache.ClearBlockedReason is null)
         {
             // スキャンや作成が終わった。キャッシュの大きさが変わっているため、調べ直す
