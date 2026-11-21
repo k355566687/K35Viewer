@@ -22,6 +22,7 @@ public partial class MainWindow : Window
 
         RestorePlacement(viewModel.SavedWindowPlacement);
         PreviewKeyDown += OnPreviewKeyDown;
+        PreviewMouseDown += OnPreviewMouseDown;
         Closing += OnClosing;
         // 画面が表示されたあとに、前回開いていたアーカイブを続きから開く（設定がオンのとき）。1回だけ
         ContentRendered += OnContentRenderedOnce;
@@ -52,6 +53,21 @@ public partial class MainWindow : Window
 
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         if (_viewModel.Viewer.HandleKey(key, Keyboard.Modifiers))
+        {
+            e.Handled = true;
+        }
+    }
+
+    // マウスの戻るボタン（XButton1）で、ビューアからライブラリへ戻る（Issue #28）。ライブラリ画面では何もしない。
+    // 進むボタン（XButton2）は使わない。アーカイブの更新中は、キー操作と同じく受け付けない
+    private void OnPreviewMouseDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.XButton1 || _viewModel.IsUpdating || !_viewModel.IsViewerVisible)
+        {
+            return;
+        }
+
+        if (_viewModel.Viewer.HandleBackButton())
         {
             e.Handled = true;
         }

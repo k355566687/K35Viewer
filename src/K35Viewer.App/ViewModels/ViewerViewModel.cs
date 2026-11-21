@@ -422,7 +422,8 @@ public sealed partial class ViewerViewModel(
             case Key.F11:
                 ToggleFullScreen();
                 return true;
-            case Key.Escape:
+            // キーボードの「戻る」キー（マウスの戻るボタンが、ドライバーによってはこのキーとして届く。Issue #28）
+            case Key.Escape or Key.BrowserBack:
                 RequestClose();
                 return true;
             case Key.Delete:
@@ -642,6 +643,21 @@ public sealed partial class ViewerViewModel(
 
     [RelayCommand]
     private void RequestClose() => CloseRequested?.Invoke(this, EventArgs.Empty);
+
+    /// <summary>
+    /// マウスの戻るボタン（XButton1）が押された（Issue #28）。開いていれば、Esc と同じくライブラリへ戻るよう求める
+    /// （削除予約の確認は、呼び出し側が行う）。処理した場合は true。
+    /// </summary>
+    public bool HandleBackButton()
+    {
+        if (!IsOpen)
+        {
+            return false;
+        }
+
+        RequestClose();
+        return true;
+    }
 
     /// <summary>対象の画像（1枚表示では今の頁、一覧表示では右クリックした画像）を、そのまま表紙にするよう求める。</summary>
     [RelayCommand]
